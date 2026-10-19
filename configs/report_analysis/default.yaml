@@ -1,0 +1,91 @@
+# ====== 输入工件（优先由 CLI 或 manifest 解析） ======
+
+# 实验 manifest 路径（可选；优先级高于 experiment_version 和显式路径）
+manifest_path: ""
+
+# 实验版本号（可选；未提供 manifest 时使用）
+experiment_version: ""
+
+# 测试集预测结果 CSV（必需；若 manifest 可解析则忽略）
+test_prediction_path: ""
+
+# 训练集预测结果 CSV（可选；缺失时可降级为 test-only）
+train_prediction_path: ""
+
+# 验证集预测结果 CSV（可选；缺失时可降级为已有集合分析）
+val_prediction_path: ""
+
+# LightGBM 模型文件路径（可选；缺失时跳过特征重要性）
+model_path: ""
+
+# 入选特征列表 txt（可选；用于区分 tsfresh 与手工特征）
+selected_features_path: ""
+
+# 缩尾分位数 JSON（可选；用于补充报告说明）
+clip_percentiles_path: ""
+
+# 管道状态 JSON（可选；用于补充 step6 指标）
+state_file: ""
+
+# 模型特征 schema JSON（可选；用于补充对齐说明）
+model_feature_schema_path: ""
+
+
+# ====== 输出设置 ======
+
+# 分析产物输出目录（可选；默认输出到 outputs/<experiment_version>/analysis）
+output_dir: ""
+
+# 报告标题（用于 Markdown 一级标题和图表标题）
+report_title: "实验分析报告"
+
+
+# ====== 数据列名映射 ======
+
+# 预测值列名
+pred_col: "y_pred"
+
+# 缩尾后标签列名
+target_col: "target"
+
+# 原始标签列名
+target_raw_col: "target_raw"
+
+# 样本 ID 列名
+sample_id_col: "sample_id"
+
+# 信号日期列名
+signal_date_col: "signal_date"
+
+
+# ====== 分析参数 ======
+
+# 100 组单调性分组数
+n_monotonic_groups: 100
+
+# 单调性摘要表每隔多少组展示一行
+monotonic_preview_stride: 10
+
+# 是否在单调性分析中额外剔除极值
+remove_outliers_for_monotonic: false
+
+# 启用极值剔除时的下分位数
+monotonic_outlier_low: 0.01
+
+# 启用极值剔除时的上分位数
+monotonic_outlier_high: 0.99
+
+# 测试集五分组数量
+test_group_count: 5
+
+# 分位阈值过滤列表
+threshold_quantiles: [0.5, 0.6, 0.7, 0.8, 0.9]
+
+# 特征重要性 Top K
+feature_importance_top_k: 20
+
+# 图表输出 DPI
+plot_dpi: 180
+
+# 严格模式：缺少已定位的 train/val 工件时直接退出
+strict_mode: true

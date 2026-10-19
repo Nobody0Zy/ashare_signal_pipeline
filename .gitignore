@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs
+*.log
+
+# 运行态产物：数据、模型、输出（仅保留占位与跟踪文件）
+data/*
+!data/raw/
+!data/raw/.gitkeep
+models/*
+!models/.gitkeep
+outputs/*
+!outputs/experiment_registry.json
+
+# 运行态 state
+state/
+pipeline_state_*.json
+legacy_unversioned/
+bagging_regen.log

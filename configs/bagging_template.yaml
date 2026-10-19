@@ -1,0 +1,34 @@
+# Bagging 集成编排模板
+# source_experiment.source_config_path 指向本谱系的 source 实验配置
+
+expected_source_base_version: ""   # 留空 = 不校验 source 的 base_version
+
+source_experiment:
+  source_config_path: configs/<base_version>/<source_config>.yaml
+  template_config_path: configs/default.yaml
+  source_state_file: pipeline_state_full_<base_version>_<label>.json
+  source_manifest_path: ""
+  source_experiment_version: ""
+
+lab_experiment:
+  base_version: <base_version>
+  label_template: bagging_lab{lab_id:02d}_seed{seed}
+  state_file_template: bagging_lab{lab_id:02d}_pipeline_state_full.json
+
+ensemble_experiment:
+  base_version: <base_version>
+  label: bagging_ensemble
+  state_file: bagging_ensemble_pipeline_state_full.json
+
+bagging:
+  seeds: [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]
+  max_labs: 10
+  train_shuffle: true
+
+run:
+  max_labs: 10
+  skip_analysis: false
+
+analysis:
+  report_title: "Bagging 实验分析报告"
+  strict_mode: true

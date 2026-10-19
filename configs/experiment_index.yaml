@@ -1,0 +1,22 @@
+# 实验注册表：所有实验必须在此注册。
+# base_version 仅用于定义实验谱系/重大思路迭代，不用于单项功能或参数更新。
+#
+# 字段说明：
+#   name                  唯一标识
+#   config                相对仓库根的 YAML 路径
+#   description           实验目的与差异说明
+#   expected_base_version 必须与 config 中的 experiment.base_version 一致
+#   label                 必须与 config 中的 experiment.label 一致
+#
+# 命名层级：样本族(base_version) → 版本迭代(version_subdir) → 配置差异(label)
+#   - base_version 表示样本族（boll / lowvol / momentum），不放版本号
+#   - version_subdir 表示该族内的第 N 轮迭代（v0 / v1 ...）
+#   - label 只在同一 (base_version, version_subdir) 内区分并行配置
+#
+# 示例（复制后取消注释并修改）：
+#   - name: boll_v0_baseline
+#     config: configs/boll/v0/boll_baseline.yaml
+#     description: 布林带样本族 v0 基线实验
+#     expected_base_version: boll
+#     label: baseline
+experiments: []

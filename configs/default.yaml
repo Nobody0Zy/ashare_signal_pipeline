@@ -1,0 +1,167 @@
+# 默认实验配置 · 供所有实验继承的基础模板
+#
+# 阅读顺序： 全局参数 → 实验版本 → 步骤1~6（按管道执行顺序）
+# 关于各步骤的消费参数说明，参见对应注释段。
+
+# ════════════════════════════════════════════════════════════
+# 全局参数（非步骤专属）
+# ════════════════════════════════════════════════════════════
+seed: 42                      # 全局随机种子（影响步骤2冒烟抽样、步骤4分块、步骤5冒烟分割）
+smoke_size: 5000              # 冒烟模式样本量
+
+# ════════════════════════════════════════════════════════════
+# 实验版本（非步骤专属，由 pipeline/config.py 消费）
+# ════════════════════════════════════════════════════════════
+experiment:
+  version_subdir: ""          # 实验子目录（如 "00_baseline"）；覆盖以新建实验
+  base_version: v3_clean      # 实验谱系（base_version + run_date + label + param_hash 构成 experiment_version）
+  run_date: auto              # "auto" = 运行当日；可写死如 "20260731" 以复现
+  label: "default"            # 实验标签；新实验覆盖
+  include_param_hash: true    # 参数哈希加入 experiment_version
+  param_hash_length: 8
+  auto_eval_summary: true     # 步骤6完成后自动生成 eval_summary.json
+
+# ════════════════════════════════════════════════════════════
+# 步骤1：数据清洗
+#   消费参数：无（仅读取 data/raw/ 并实施基础过滤）
+#   过滤条件：is_closed=True, entry_execution_price>0, holding_return 非空
+#   丢掉约 210 个未平仓样本（原始 240,467 → 240,257）
+# ════════════════════════════════════════════════════════════
+
+# ════════════════════════════════════════════════════════════
+# 步骤2：非停牌行情切片 & non_trading_ratio
+#   消费参数：window.lookback_days, window.chunk_size_slices, smoke_size
+#   做法：取 signal_date 及之前最近的 N 个非停牌交易日（含信号日）
+#   丢掉约 4,402 个历史不足样本（次新股/复牌股）
+# ════════════════════════════════════════════════════════════
+window:
+  lookback_days: 60           # 特征窗口宽度（非停牌交易日数，含信号日）
+  chunk_size_slices: 5000     # 切片构建分块大小（按 sample_id 分组切）
+
+# ════════════════════════════════════════════════════════════
+# 步骤1：样本过滤（持有期过滤）
+#   消费参数：sample_filter.*（max_holding_days=null 时不过滤）
+# ════════════════════════════════════════════════════════════
+sample_filter:
+  max_holding_days: null       # 默认不过滤
+  tolerance: 1.0
+
+# ════════════════════════════════════════════════════════════
+# 步骤3：手工技术指标计算
+#   消费参数：indicators.*（全部字段）
+#   profile 路由：base（12 个基础指标）| v3_enriched（基础 + MACD/OBV/KDJ/Boll%B）
+# ════════════════════════════════════════════════════════════
+indicators:
+  profile: base               # 指标集路由
+  # ---- 基础指标（profile=base 使用）----
+  rsi_period: 14
+  atr_period: 14
+  ma_windows: [5, 10, 20]
+  boll_period: 20
+  boll_std_mult: 2.0
+  volume_ma_period: 20
+  momentum_period: 5
+  volatility_period: 20
+  # ---- 富化指标（profile=v3_enriched 时生效）----
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  kdj_period: 9
+  kdj_k_period: 3
+  kdj_d_period: 3
+  # ---- V4.1 pure 模式（skip_indicators=true 时生效）----
+  skip_indicators: false       # 默认不跳过
+  lookback_periods: []         # 空列表 = 不启用多周期 OHLC
+  lookback_columns:
+    - open
+    - high
+    - low
+    - close
+    - volume
+
+# ════════════════════════════════════════════════════════════
+# 步骤4：tsfresh 特征提取参数（独立于窗口定义）
+#   消费参数：tsfresh.chunk_size_tsfresh, tsfresh.tsfresh_n_jobs
+#   fc_profile 四档："compact" | "medium" | "broad" | "full"
+# ════════════════════════════════════════════════════════════
+tsfresh:
+  chunk_size_tsfresh: 0       # tsfresh 提取分块大小; 0 = 不分块
+  tsfresh_n_jobs: 0           # tsfresh 并行数; 0 = 全部 CPU 核心
+  fc_profile: compact         # 计算器档位（预留）
+
+# ════════════════════════════════════════════════════════════
+# 步骤4：tsfresh 特征构造 & 基于训练集的特征筛选（防泄漏核心）
+#   消费参数：tsfresh.chunk_size_tsfresh, tsfresh.tsfresh_n_jobs,
+#             feature_selection.*（全部字段）, time_split.train_end
+#   全量模式：仅在 signal_date <= train_end 的训练样本上计算 Pearson 相关性
+#   流程：方差0删除 → 相关性排序 → top_candidates → corr_threshold 去重 → max_features 截断
+# ════════════════════════════════════════════════════════════
+feature_selection:
+  max_features: 50            # 最终保留特征数; null = 不限制（由 corr_threshold 去重收束）
+  top_candidates: 100         # 相关性排序取 top-N 进入去重; null = 全部候选
+  corr_threshold: 0.95        # 特征间 Pearson 相关性去重阈值
+  target_clip_low: 0.01       # 训练集目标缩尾下界（分位数）
+  target_clip_high: 0.99      # 训练集目标缩尾上界（分位数）
+  selection_mode: correlation  # "correlation"（默认，现有行为）| "none"（跳过筛选）
+
+# ════════════════════════════════════════════════════════════
+# 步骤5：手工特征拼接 & 数据集时间划分
+#   消费参数：time_split.*, manual_features.*, split.*, seed
+#   创建 target_raw（缩尾前的原始标签副本）
+#   全量模式：按 signal_date 严格时间划分 + 缓冲带硬校验（可由 enforce_buffer 关闭）
+#   冒烟模式：随机 70/15/15 分割，跳过时间隔离
+# ════════════════════════════════════════════════════════════
+time_split:
+  train_end: 20201130         # 训练集截止（signal_date ≤ 此值 → train）
+                              #   也由步骤4消费：仅训练集样本参与相关性筛选
+  val_start: 20210322         # 验证集起始（距 train_end 必须≥ buffer 个交易日）
+  val_end: 20221231           # 验证集截止
+  test_start: 20230410        # 测试集起始（距 val_end 必须≥ buffer 个交易日）
+  buffer_trading_days: 60     # 集合间最小非停牌交易日数（必须 ≥ lookback_days）
+  enforce_buffer: true        # true = 执行缓冲带硬校验；false = 仅按日期切分
+
+monitoring:
+  enabled: false
+  level: light
+
+manual_features:
+  include_date: false         # 日号 1~31；启用会导致日历信息泄露
+  include_year: false         # 年份
+  include_month: false        # 月份；启用会导致日历信息泄露
+  include_non_trading_ratio: true
+  non_trading_ratio_fill_value: 0.0
+  include_signal_date_selection_score: true
+  selection_score_fill_value: 0.0
+
+split:
+  smoke_train_ratio: 0.70     # 冒烟模式训练集比例
+  smoke_val_ratio: 0.15       # 冒烟模式验证集比例（测试集 = 1 - train_ratio - val_ratio）
+
+# ════════════════════════════════════════════════════════════
+# 步骤6：LightGBM 回归训练 & 评估
+#   消费参数：lgb.*（全部字段）, eval.*
+#   强制：seed=42, num_threads=1（可复现）
+#   valid_set = (X_val, y_val)，early_stopping_rounds=100
+# ════════════════════════════════════════════════════════════
+lgb:
+  lgb_profile: default
+  objective: regression
+  metric: mae
+  boosting_type: gbdt
+  num_leaves: 31
+  max_depth: 7
+  learning_rate: 0.05
+  min_child_samples: 100
+  subsample: 0.6
+  colsample_bytree: 0.8
+  reg_alpha: 1.0
+  reg_lambda: 1.0
+  seed: 42
+  num_threads: 1              # 强制单线程（可复现）
+  verbose: -1
+  num_boost_round: 3000
+  early_stopping_rounds: 100
+  log_evaluation_period: 100
+
+eval:
+  pred_group_q: 5

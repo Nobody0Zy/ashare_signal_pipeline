@@ -1,0 +1,21 @@
+# 收尾白名单：由各谱系在收尾阶段维护。
+# 未填写时，收尾工具（capsule / prune）不产生任何目标。
+base_version: ""
+
+# 可选：显式指定母库版本；留空则从各实验 manifest 的 master_library.master_version 推导
+master_library_version: ""
+
+# 母库建库知识文档（相对仓库根）
+master_library_docs: []
+
+# 保护路径（名称 → 相对仓库根）；raw_data 会自动附加
+protected_paths: {}
+
+# 冻结实验清单
+# - experiment_version: <实验 ID>            # run_id，不含 base_version/version_subdir 前缀
+#   status: canonical | failed | aborted
+#   config_path: configs/<base_version>/<version_subdir>/<name>.yaml
+#   max_step: 6
+#   summary_lines:
+#     - "一句话结论"
+experiments: []
