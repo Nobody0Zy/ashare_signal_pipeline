@@ -162,18 +162,23 @@ design/<base_version>/README.md
 
 ### 5.3 跑 smoke（step1 → step6）
 
-**每一步都必须用独立的 `state-file`**，不要复用：
+**同一配置、同一模式，step1~step6 必须共用一个 `state-file`**。
+状态机靠这个文件判断"前置步骤是否已完成"；每步换一个新文件会导致 step2 报 `前置步骤 1 未完成`。
 
 ```powershell
 $cfg = "configs/<base_version>/v0/<base_version>_baseline.yaml"
+$st  = "pipeline_state_smoke_<base_version>_v0_baseline.json"
 
-python run_experiment_pipeline.py --mode smoke --smoke 5000 --step 1 --config $cfg --state-file pipeline_state_smoke_<base_version>_v0_baseline_step1.json
-python run_experiment_pipeline.py --mode smoke --smoke 5000 --step 2 --config $cfg --state-file pipeline_state_smoke_<base_version>_v0_baseline_step2.json
-python run_experiment_pipeline.py --mode smoke --smoke 5000 --step 3 --config $cfg --state-file pipeline_state_smoke_<base_version>_v0_baseline_step3.json
-python run_experiment_pipeline.py --mode smoke --smoke 5000 --step 4 --config $cfg --state-file pipeline_state_smoke_<base_version>_v0_baseline_step4.json
-python run_experiment_pipeline.py --mode smoke --smoke 5000 --step 5 --config $cfg --state-file pipeline_state_smoke_<base_version>_v0_baseline_step5.json
-python run_experiment_pipeline.py --mode smoke --smoke 5000 --step 6 --config $cfg --state-file pipeline_state_smoke_<base_version>_v0_baseline_step6.json
+python run_experiment_pipeline.py --mode smoke --smoke 5000 --step 1 --config $cfg --state-file $st
+python run_experiment_pipeline.py --mode smoke --smoke 5000 --step 2 --config $cfg --state-file $st
+python run_experiment_pipeline.py --mode smoke --smoke 5000 --step 3 --config $cfg --state-file $st
+python run_experiment_pipeline.py --mode smoke --smoke 5000 --step 4 --config $cfg --state-file $st
+python run_experiment_pipeline.py --mode smoke --smoke 5000 --step 5 --config $cfg --state-file $st
+python run_experiment_pipeline.py --mode smoke --smoke 5000 --step 6 --config $cfg --state-file $st
 ```
+
+> 不要混用：`smoke` 与 `full` 必须各自独立命名；不同配置也必须独立命名。
+> "独立 state-file"约束的是**验证路径之间**，不是同一次运行的步骤之间。
 
 每一步成功后都会打印 `checks_passed`，并把状态写入该实验的 `metadata/` 目录。任一 check 失败则该步为 `failed`，后续步骤禁止启动。
 

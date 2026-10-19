@@ -11,8 +11,8 @@
 ```powershell
 python pipeline/adapters/sample_family.py --show-contract
 python tools/scaffold_experiment_line.py <base_version> --version-subdir v0 --label baseline
-python run_experiment_pipeline.py --mode smoke --smoke 5000 --step 1 --config configs/<base_version>/v0/<base_version>_baseline.yaml --state-file pipeline_state_smoke_<base_version>_v0_baseline_step1.json
-python run_experiment_pipeline.py --mode smoke --smoke 5000 --step 2 --config configs/<base_version>/v0/<base_version>_baseline.yaml --state-file pipeline_state_smoke_<base_version>_v0_baseline_step2.json
+python run_experiment_pipeline.py --mode smoke --smoke 5000 --step 1 --config configs/<base_version>/v0/<base_version>_baseline.yaml --state-file pipeline_state_smoke_<base_version>_v0_baseline.json
+python run_experiment_pipeline.py --mode smoke --smoke 5000 --step 2 --config configs/<base_version>/v0/<base_version>_baseline.yaml --state-file pipeline_state_smoke_<base_version>_v0_baseline.json
 ```
 
 说明：
@@ -20,7 +20,8 @@ python run_experiment_pipeline.py --mode smoke --smoke 5000 --step 2 --config co
 - 第 1 条先确认输入契约。
 - 第 2 条生成 `design/` 与 `configs/` 的入口骨架。
 - 第 3、4 条只是 smoke 起步；后续 step3~step6 继续沿同样模式逐步执行。
-- 每一步都使用独立 `state-file`，不要复用。
+- **同一个配置、同一模式，step1~step6 必须共用一个 `state-file`**：状态机靠它判断"前置步骤是否已完成"。
+- **不同配置或不同模式（smoke / full）必须用不同 `state-file`**，否则会互相覆盖状态。
 
 ## 阅读顺序
 
