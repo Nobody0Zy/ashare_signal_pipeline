@@ -11,12 +11,17 @@
 
 ## 快速开始
 
-1. 放数据  
+> 完整的分步说明（含 clone、命名、remote 重设、首次提交）见 **`docs/12_clone_and_start.md`**。
+> 本仓库是 GitHub Template：在仓库页点 `Use this template` 即可生成一个干净的新仓库。
+
+1. 克隆并命名  
+   `git clone <url> <base_version>`（目录名即样本族名，如 `lowvol`、`boll`）。
+2. 放数据  
    把 `holding_stats_all.parquet` 与 `dateBar.pkl` 放到 `data/raw/`。
-2. 建谱系  
+3. 建谱系  
    运行 `python tools/scaffold_experiment_line.py <base_version> --version-subdir v0 --label baseline`。
-3. 做 smoke  
-   按 step1~step6 分步运行 `python run_experiment_pipeline.py --mode smoke --smoke 5000 --step <n> --config <path> --state-file <name>`。
+4. 做 smoke  
+   按 step1~step6 分步运行 `python run_experiment_pipeline.py --mode smoke --smoke 5000 --step <n> --config <path> --state-file <name>`，每步用独立 `state-file`。
 
 ## 目录结构
 
@@ -38,8 +43,9 @@ ashare_signal_pipeline/
 
 - 规则入口：`AGENTS.md`
 - 上手导航：`docs/00_start_here.md`
+- 从模板克隆出新仓库：`docs/12_clone_and_start.md`
 - 硬约束：`docs/01_pipeline_contract.md`
-- 开新谱系：`docs/08_lineage_startup.md`
+- 开新谱系/新版本：`docs/08_lineage_startup.md`
 - 架构总览：`docs/10_architecture.md`
 
 ## 环境要求

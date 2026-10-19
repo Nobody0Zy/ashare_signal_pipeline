@@ -38,7 +38,8 @@
 
 - 想确认“代码在哪里改”时，先看这一节。
 - 想确认“规则是什么”时，转到 `docs/01_pipeline_contract.md`。
-- 想确认“开新谱系怎么做”时，转到 `docs/08_lineage_startup.md`。
+- 想确认“从模板克隆出一个新仓库怎么做”时，转到 `docs/12_clone_and_start.md`。
+- 想确认“在已有仓库内开新谱系/新版本怎么做”时，转到 `docs/08_lineage_startup.md`。
 
 ## 3. 必读（开新谱系时）
 
@@ -46,6 +47,8 @@
 
 1. `docs/01_pipeline_contract.md`
 2. `docs/08_lineage_startup.md`
+
+若是**从模板新建仓库**，把 `docs/12_clone_and_start.md` 放在这两份之前读。
 
 其余文档按需读取：
 
