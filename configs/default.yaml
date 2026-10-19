@@ -2,6 +2,8 @@
 #
 # 阅读顺序： 全局参数 → 实验版本 → 步骤1~6（按管道执行顺序）
 # 关于各步骤的消费参数说明，参见对应注释段。
+# 本文件是兜底继承模板，不直接用于正式实验；
+# 正式实验请用 tools/scaffold_experiment_line.py 生成 configs/<base_version>/<version_subdir>/ 下的配置。
 
 # ════════════════════════════════════════════════════════════
 # 全局参数（非步骤专属）
@@ -14,7 +16,7 @@ smoke_size: 5000              # 冒烟模式样本量
 # ════════════════════════════════════════════════════════════
 experiment:
   version_subdir: ""          # 实验子目录（如 "00_baseline"）；覆盖以新建实验
-  base_version: v3_clean      # 实验谱系（base_version + run_date + label + param_hash 构成 experiment_version）
+  base_version: your_family   # 【必须修改】克隆后改为样本族名，如 boll / lowvol / momentum
   run_date: auto              # "auto" = 运行当日；可写死如 "20260731" 以复现
   label: "default"            # 实验标签；新实验覆盖
   include_param_hash: true    # 参数哈希加入 experiment_version
@@ -30,6 +32,7 @@ experiment:
 
 # ════════════════════════════════════════════════════════════
 # 步骤2：非停牌行情切片 & non_trading_ratio
+# ---- 以下数值为示例，克隆后必须按新样本的实际时间区间与特征窗口调整 ----
 #   消费参数：window.lookback_days, window.chunk_size_slices, smoke_size
 #   做法：取 signal_date 及之前最近的 N 个非停牌交易日（含信号日）
 #   丢掉约 4,402 个历史不足样本（次新股/复牌股）
