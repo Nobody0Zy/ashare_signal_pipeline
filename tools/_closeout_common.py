@@ -149,12 +149,17 @@ def is_config_registered(config_path: str) -> bool:
 
 
 def build_rerun_commands(spec: FrozenExperiment) -> list[str]:
+    """生成平台中立的复跑命令。
+
+    不写死解释器绝对路径：capsule 会被带到其他机器上使用，
+    硬编码 ``C:/.../python.exe`` 会让回放命令在别处失效。
+    统一用 ``python``（PATH 上的解释器），并在 capsule 中附注替换方式。
+    """
     config_path = normalize_rel_path(spec.config_path)
     state_file = f"pipeline_state_full_closeout_{spec.config_stem}.json"
     return [
         (
-            '& "C:/ProgramData/anaconda3/envs/factor311/python.exe" '
-            f"run_experiment_pipeline.py --mode full --step {step} "
+            f"python run_experiment_pipeline.py --mode full --step {step} "
             f"--config {config_path} --state-file {state_file}"
         )
         for step in range(1, spec.max_step + 1)
@@ -302,9 +307,13 @@ def render_capsule_text(
         f"- resolved_params: `{fields['resolved_params']}`",
         f"- canonical_status: `{fields['canonical_status']}`",
         "- rerun:",
-        "```powershell",
+        "```text",
         *fields["rerun_commands"],
         "```",
+        (
+            "  > 命令中的 `python` 指当前环境可用的解释器；"
+            "若不在 PATH，替换为你的解释器绝对路径后执行。"
+        ),
         "- data_prerequisites:",
     ]
     for item in fields["data_prerequisites"]:

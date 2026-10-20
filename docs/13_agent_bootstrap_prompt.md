@@ -207,6 +207,18 @@ REMOTE_URL     = {{REMOTE_URL}}
 
 > **为什么依赖版本如此关键**：模板冻结了 `seed=42`、`num_threads=1`、`chunk_size` 等确定性参数，但 tsfresh 的**计算器集合**随版本变化。升级后特征列会静默改变，`calendar_gain_share` 之外的指标也随之变化，结论不可比。
 
+### 4.1 平台支持
+
+| 项 | 状态 |
+| :--- | :--- |
+| Windows + PowerShell | 已验证 |
+| Linux / macOS + bash | 结构上支持；具体步骤把 PowerShell 语法换成等价 bash 即可 |
+| 路径处理 | 代码统一使用 `pathlib`，不依赖盘符 |
+| 命令形式 | capsule 中的复跑命令以 `python ` 开头，不绑定解释器绝对路径，跨平台可用 |
+
+> 换平台时**唯一需要重写的是第 3 节的示例命令**（`Set-Location` → `cd`、`Copy-Item` → `cp`）。
+> 阶段划分、判据、自检门与产物结构完全一致。
+
 ---
 
 ## 5. 自检门
@@ -285,12 +297,79 @@ git commit -m "import template TEMPLATE_REF"
 
 ---
 
-## 8. 更新记录
+## 8. 用作模板回归
+
+改了模板（`pipeline/`、`tools/`、`configs/default.yaml`、文档生成逻辑）之后，用本文跑一遍即可确认没有回归。
+
+**回归 = 同一套阶段 0–7 + 一个一次性谱系 + 三条额外检查。** 不需要另写一套流程。
+
+### 8.1 一次性谱系的约定
+
+| 项 | 取值 |
+| :--- | :--- |
+| `BASE_VERSION` | `smokecheck`（或 `regression_<日期>`） |
+| `TARGET_DIR` | 模板仓库**之外**的新目录 |
+| `PUSH` | `no` |
+| `SMOKE_N` | `500`（足以触发全部分支，又足够快） |
+
+跑完即删除 `TARGET_DIR`，不要把它当真实谱系保留。
+
+### 8.2 三条额外检查（阶段 0–7 之外）
+
+| # | 检查 | 命令 | 期望 |
+| :---: | :--- | :--- | :--- |
+| R1 | 生成配置是**完整快照** | `(Get-Content configs/<bv>/<vs>/<bv>_<label>.yaml).Count` | > 100 行，且含 `manual_features` 段 |
+| R2 | 日历开关显式关闭 | `Select-String -Path configs/<bv>/<vs>/*.yaml -Pattern 'include_date|include_year|include_month'` | 三项均为 `false` |
+| R3 | **capsule 不含硬编码解释器**（阶段 5 的 smoke 覆盖不到） | 见下 | 命令以 `python ` 开头，无绝对路径 |
+
+R3 的做法：临时把 `tools/frozen_experiments.yaml` 的 `base_version` 与 `experiments` 填成刚跑出的实验，
+执行 `python tools/export_replay_capsule.py <experiment_version>`，然后检查生成的 md：
+
+```powershell
+Select-String -Path design/**/*.md -Pattern 'anaconda|C:/|C:\\|/usr/bin'
+```
+
+期望 **0 命中**（除 `data_prerequisites` 里合法的相对路径）。
+检查完把 `frozen_experiments.yaml` 还原为空。
+
+> R3 为什么必要：`smoke` 只走 step1–6，不经过 capsule / prune 工具。
+> 这两个工具曾经写死过本机解释器路径，导致 capsule 在别的机器上无法回放。
+
+### 8.3 一次通过的产物长这样
+
+结构预期，不要用指标判断有效性（smoke 指标本身没有意义）：
+
+| 位置 | 应存在 | 说明 |
+| :--- | :---: | :--- |
+| `outputs/<bv>/<vs>/<run_id>/predictions_smoke.csv` | 是 | 测试集预测 |
+| `.../train_predictions_smoke.csv` | 是 | 训练集预测 |
+| `.../val_predictions_smoke.csv` | 是 | 验证集预测 |
+| `.../metadata/pipeline_state_smoke_*.json` | 是 | step_1..step_6 均为 `completed` |
+| `.../metadata/experiment_manifest.json` | 是 | 版本与来源登记 |
+| `.../metadata/model_feature_schema_smoke.json` | 是 | 特征清单 |
+| `.../analysis/eval_summary.json` | 是 | `calendar_gain_share` 必须为 `0` |
+
+### 8.4 回归失败的归类
+
+| 失败项 | 性质 | 处理 |
+| :--- | :--- | :--- |
+| 阶段 0–3 失败 | 环境或数据问题 | 修环境，不算模板回归 |
+| G2（R1/R2）失败 | **模板缺陷** | 修复模板后重跑 |
+| G3（六步）失败 | **模板缺陷** | 修复模板后重跑 |
+| G4（防泄漏）失败 | **模板缺陷** | 修复模板后重跑 |
+| R3 失败 | **模板缺陷** | 修复工具后重跑 |
+
+> 只有后四类才需要在模板仓库提交修复；前三类属于使用环境。
+
+---
+
+## 9. 更新记录
 
 | 版本 | 变更 |
 | :--- | :--- |
 | v1.0.3 | 新建本文；提取自实际 smoke 验证中暴露的两个缺陷（日历开关、state-file 语义） |
 | v1.0.4 | 修正阶段 1：按 tag 克隆会得到 detached HEAD，补 `git checkout -B main`；新增 `{{TEMPLATE_COMMIT}}` 占位符，因浅克隆下 tag ref 不可用 |
 | v1.0.5 | 修正 `.gitignore`：`data/raw/*` 原先未被忽略，`git add -A` 会提交数百 MB 原始数据；阶段 7 改为显式提交 `outputs/experiment_registry.json` |
+| v1.0.6 | 新增 §8 用作模板回归（含 capsule 检查 R3，覆盖 smoke 盲区）；`_closeout_common` 去掉硬编码解释器与 PowerShell 围栏 |
 
 > 本文与 `12_clone_and_start.md` 描述同一条路径，但读者不同：前者面向 agent（指令式），后者面向人（解释式）。两者内容若冲突，以本文的阶段划分与判据为准。
