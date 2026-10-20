@@ -39,7 +39,8 @@ python run_experiment_pipeline.py --mode smoke --smoke 5000 --step 2 --config co
 
 | 我想… | 读 |
 | :--- | :--- |
-| 从模板克隆出一个新仓库 | `12_clone_and_start.md` |
+| 让 agent 替我开一个新仓库 | `13_agent_bootstrap_prompt.md` |
+| 从模板克隆出一个新仓库（人工操作） | `12_clone_and_start.md` |
 | 在已有仓库内开新谱系/新版本 | `08_lineage_startup.md` |
 | 搞清数据契约 | `01_pipeline_contract.md` |
 | 判断某步是否合格 | `07_step_acceptance_criteria.md` |

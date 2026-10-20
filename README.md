@@ -9,6 +9,21 @@
 - 配置与注册集中在 `configs/`
 - 跨谱系知识集中在 `docs/`
 
+## 用 agent 从模板开新实验
+
+如果你想让任意 coding agent（本机或远程设备均可）接手"从克隆到 smoke 跑通"的全过程，
+把下面这段交给它即可：
+
+> 按 `docs/13_agent_bootstrap_prompt.md` 执行。
+> 参数：TEMPLATE_REF=`v1.0.3`，TARGET_DIR=`<绝对路径>`，
+> BASE_VERSION=`<样本族名>`，VERSION_SUBDIR=`v0`，LABEL=`baseline`，
+> DATA_DIR=`<原始数据目录>`，SMOKE_N=`500`，PUSH=`no`
+>
+> 若有未填项，先向我追问，不要自行假设。
+
+完整的占位符说明、环境探测判据、自检门与变体见
+**`docs/13_agent_bootstrap_prompt.md`**。
+
 ## 快速开始
 
 > 完整的分步说明（含 clone、命名、remote 重设、首次提交）见 **`docs/12_clone_and_start.md`**。
@@ -43,7 +58,8 @@ ashare_signal_pipeline/
 
 - 规则入口：`AGENTS.md`
 - 上手导航：`docs/00_start_here.md`
-- 从模板克隆出新仓库：`docs/12_clone_and_start.md`
+- 交给 agent 从零开新仓库：`docs/13_agent_bootstrap_prompt.md`
+- 从模板克隆出新仓库（人类手册）：`docs/12_clone_and_start.md`
 - 硬约束：`docs/01_pipeline_contract.md`
 - 开新谱系/新版本：`docs/08_lineage_startup.md`
 - 架构总览：`docs/10_architecture.md`
