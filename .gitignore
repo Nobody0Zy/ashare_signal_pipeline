@@ -8,11 +8,15 @@ __pycache__/
 *.log
 
 # 运行态产物：数据、模型、输出（仅保留占位与跟踪文件）
+# data/raw 的原始数据属于使用者本地资产，默认不提交；
+# 如确需随仓库分发小样本，用 git add -f 显式添加。
 data/*
 !data/raw/
+data/raw/*
 !data/raw/.gitkeep
 models/*
 !models/.gitkeep
+# 实验登记表是跟踪文件，随提交演进
 outputs/*
 !outputs/experiment_registry.json
 

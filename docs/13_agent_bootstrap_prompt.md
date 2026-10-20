@@ -137,9 +137,17 @@ REMOTE_URL     = {{REMOTE_URL}}
   第 4 条是硬门：非 0 说明日历特征被启用，必须停止并报告。
 
 【阶段 7 · 提交】
-  git add configs design
+  git add configs design outputs/experiment_registry.json
   git commit
-  校验作者为你设置的身份；git status --short 为空。
+  
+  校验：
+    - 提交作者为你设置的身份
+    - git ls-files 中不含 data/raw 下除 .gitkeep 之外的文件
+    - git status --short 为空
+  
+  `data/raw/` 的原始数据属于本地资产，已被 .gitignore 排除，不会也不应被提交。
+  若发现它出现在待提交列表里，说明 .gitignore 被改动，停止报告。
+
   若 PUSH=no：不执行任何 push，报告里写明"未推送"。
   若 PUSH=yes：
       git remote add origin REMOTE_URL
@@ -267,6 +275,7 @@ git commit -m "import template TEMPLATE_REF"
 | `step2` 报"前置步骤 1 未完成" | 每步换了 state-file | 六步共用一个文件 |
 | `calendar_gain_share != 0` | 配置中 `include_date/year/month` 为 true | 停止；用完整配置快照，勿手写 YAML |
 | `experiment_index.yaml` 解析失败 | `description` 含冒号未加引号 | 停止；这是模板缺陷，回灌修复 |
+| `git status` 显示 `data/raw/*.parquet` 待提交 | `.gitignore` 未覆盖该层 | 停止；原始数据不应提交 |
 | `git status` 显示 `Not currently on any branch` | 按 tag 克隆得到 detached HEAD | 执行 `git checkout -B main` |
 | `git rev-parse <tag>^{commit}` 报 `unknown revision` | `--depth 1` 浅克隆未取到 tag ref | 改用 `{{TEMPLATE_COMMIT}}` 比对 HEAD |
 | `push` 报 `Repository not found` | 远端为空但 URL/账号不符 | 核对 URL 与凭据，勿 force |
@@ -282,5 +291,6 @@ git commit -m "import template TEMPLATE_REF"
 | :--- | :--- |
 | v1.0.3 | 新建本文；提取自实际 smoke 验证中暴露的两个缺陷（日历开关、state-file 语义） |
 | v1.0.4 | 修正阶段 1：按 tag 克隆会得到 detached HEAD，补 `git checkout -B main`；新增 `{{TEMPLATE_COMMIT}}` 占位符，因浅克隆下 tag ref 不可用 |
+| v1.0.5 | 修正 `.gitignore`：`data/raw/*` 原先未被忽略，`git add -A` 会提交数百 MB 原始数据；阶段 7 改为显式提交 `outputs/experiment_registry.json` |
 
 > 本文与 `12_clone_and_start.md` 描述同一条路径，但读者不同：前者面向 agent（指令式），后者面向人（解释式）。两者内容若冲突，以本文的阶段划分与判据为准。
