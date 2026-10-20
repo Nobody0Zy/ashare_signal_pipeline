@@ -27,6 +27,7 @@
 | :--- | :--- | :--- | :--- |
 | `{{TEMPLATE_URL}}` | 模板仓库地址 | `https://github.com/<owner>/ashare_signal_pipeline.git` | 克隆到错误仓库 |
 | `{{TEMPLATE_REF}}` | 固定版本（tag 或 commit） | `v1.0.3` | 不 pin 会拿到漂移的内核 |
+| `{{TEMPLATE_COMMIT}}` | 该 ref 对应的完整 commit hash | `129eb2cfb16c...` | 无法在浅克隆下校验版本 |
 | `{{TARGET_DIR}}` | 新仓库落地目录（绝对路径） | `D:\lab\lowvol` | 写已有目录会覆盖 |
 | `{{BASE_VERSION}}` | 样本族名 | `lowvol` | 输出目录与注册表全错 |
 | `{{VERSION_SUBDIR}}` | 族内版本目录 | `v0` | 与既有版本混叠 |
@@ -54,6 +55,7 @@
 【已确认参数】
 TEMPLATE_URL   = {{TEMPLATE_URL}}
 TEMPLATE_REF   = {{TEMPLATE_REF}}
+TEMPLATE_COMMIT= {{TEMPLATE_COMMIT}}
 TARGET_DIR     = {{TARGET_DIR}}
 BASE_VERSION   = {{BASE_VERSION}}
 VERSION_SUBDIR = {{VERSION_SUBDIR}}
@@ -78,10 +80,14 @@ REMOTE_URL     = {{REMOTE_URL}}
 【阶段 1 · 克隆】
   git clone --branch TEMPLATE_REF --depth 1 TEMPLATE_URL TARGET_DIR
   cd TARGET_DIR
+
+  # 按 tag 克隆会得到 detached HEAD，必须先挂回主线分支，否则后续 commit 不属于任何分支
+  git checkout -B main
+
   校验：
-    - git rev-parse HEAD 对应 TEMPLATE_REF 指向的 commit
-    - 工作树文件数与模板一致
+    - git rev-parse HEAD 等于 TEMPLATE_COMMIT
     - git status --short 为空
+    - 工作树文件数与模板一致（当前版本为 54）
   
   若 clone 失败：
     按顺序尝试：① 读取系统代理后带代理重试 ② 改用 HTTP/1.1 重试
@@ -238,13 +244,19 @@ git remote add origin REMOTE_URL
 把克隆换成从离线包解压：
 
 ```text
-# 前提：用户已提供模板的 zip/tar 包与本文件
+# 前提：用户已提供模板的 zip/tar 包，并已知其对应的 TEMPLATE_REF
 解压到 TARGET_DIR
 cd TARGET_DIR
-git init && git add -A && git commit -m "import template TEMPLATE_REF"
+git init -b main
+git add -A
+git commit -m "import template TEMPLATE_REF"
 ```
 
-其余阶段不变。特点：**没有 git 历史**，`git rev-parse HEAD` 校验改为校验 `docs/13_agent_bootstrap_prompt.md` 中记录的 `TEMPLATE_REF` 与包内 `VERSION` 文件是否一致。
+其余阶段不变。注意两点：
+
+1. **没有模板 git 历史**，`git rev-parse HEAD` 无法与 `TEMPLATE_COMMIT` 比对。
+   改为校验包内是否存在 `docs/13_agent_bootstrap_prompt.md`，且其「更新记录」末行版本与 `TEMPLATE_REF` 一致。
+2. 首次 commit 是本仓库的**第 1 条提交**，`v0` 基线从这里开始。
 
 ---
 
@@ -255,6 +267,8 @@ git init && git add -A && git commit -m "import template TEMPLATE_REF"
 | `step2` 报"前置步骤 1 未完成" | 每步换了 state-file | 六步共用一个文件 |
 | `calendar_gain_share != 0` | 配置中 `include_date/year/month` 为 true | 停止；用完整配置快照，勿手写 YAML |
 | `experiment_index.yaml` 解析失败 | `description` 含冒号未加引号 | 停止；这是模板缺陷，回灌修复 |
+| `git status` 显示 `Not currently on any branch` | 按 tag 克隆得到 detached HEAD | 执行 `git checkout -B main` |
+| `git rev-parse <tag>^{commit}` 报 `unknown revision` | `--depth 1` 浅克隆未取到 tag ref | 改用 `{{TEMPLATE_COMMIT}}` 比对 HEAD |
 | `push` 报 `Repository not found` | 远端为空但 URL/账号不符 | 核对 URL 与凭据，勿 force |
 | `push` 报 `fetch first` | 远端已有提交 | 让用户重建空仓库 |
 | 特征列数与预期不符 | 依赖版本与模板记录不一致 | 按阶段 0 的判据排查，勿降级 |
@@ -267,5 +281,6 @@ git init && git add -A && git commit -m "import template TEMPLATE_REF"
 | 版本 | 变更 |
 | :--- | :--- |
 | v1.0.3 | 新建本文；提取自实际 smoke 验证中暴露的两个缺陷（日历开关、state-file 语义） |
+| v1.0.4 | 修正阶段 1：按 tag 克隆会得到 detached HEAD，补 `git checkout -B main`；新增 `{{TEMPLATE_COMMIT}}` 占位符，因浅克隆下 tag ref 不可用 |
 
 > 本文与 `12_clone_and_start.md` 描述同一条路径，但读者不同：前者面向 agent（指令式），后者面向人（解释式）。两者内容若冲突，以本文的阶段划分与判据为准。
