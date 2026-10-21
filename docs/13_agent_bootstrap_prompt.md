@@ -334,6 +334,7 @@ Select-String -Path design/**/*.md -Pattern 'anaconda|C:/|C:\\|/usr/bin'
 
 > R3 为什么必要：`smoke` 只走 step1–6，不经过 capsule / prune 工具。
 > 这两个工具曾经写死过本机解释器路径，导致 capsule 在别的机器上无法回放。
+> R3 同时验证 metadata 查找是否覆盖 `<base_version>/<version_subdir>/<run_id>` 三段式路径。
 
 ### 8.3 一次通过的产物长这样
 
@@ -371,5 +372,6 @@ Select-String -Path design/**/*.md -Pattern 'anaconda|C:/|C:\\|/usr/bin'
 | v1.0.4 | 修正阶段 1：按 tag 克隆会得到 detached HEAD，补 `git checkout -B main`；新增 `{{TEMPLATE_COMMIT}}` 占位符，因浅克隆下 tag ref 不可用 |
 | v1.0.5 | 修正 `.gitignore`：`data/raw/*` 原先未被忽略，`git add -A` 会提交数百 MB 原始数据；阶段 7 改为显式提交 `outputs/experiment_registry.json` |
 | v1.0.6 | 新增 §8 用作模板回归（含 capsule 检查 R3，覆盖 smoke 盲区）；`_closeout_common` 去掉硬编码解释器与 PowerShell 围栏 |
+| v1.0.7 | 修正 `metadata_dir()`：原先只认 `outputs/<base_version>/<run_id>/` 两段式，未覆盖 `version_subdir` 引入的 `outputs/<base_version>/<version_subdir>/<run_id>/` 三段式，导致 R3 在首次回归时直接失败 |
 
 > 本文与 `12_clone_and_start.md` 描述同一条路径，但读者不同：前者面向 agent（指令式），后者面向人（解释式）。两者内容若冲突，以本文的阶段划分与判据为准。
