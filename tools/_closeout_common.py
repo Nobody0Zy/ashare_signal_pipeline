@@ -176,7 +176,38 @@ def require_base_version() -> str:
 
 
 def metadata_dir(spec: FrozenExperiment) -> Path:
-    return ROOT / "outputs" / require_base_version() / spec.experiment_version / "metadata"
+    """定位实验的 metadata 目录。
+
+    支持两种 experiment_version 写法：
+    - 仅 run_id：``<base_version>/outputs`` 下按 ``base_version/<run_id>`` 或
+      ``base_version/<version_subdir>/<run_id>`` 查找
+    - 相对路径：``<version_subdir>/<run_id>`` 或 ``<base_version>/<version_subdir>/<run_id>``
+
+    三段式目录（base_version / version_subdir / run_id）是当前标准，
+    旧的两段式（base_version / run_id）保持兼容。
+    """
+    base = require_base_version()
+    output_root = ROOT / "outputs"
+    raw = str(spec.experiment_version).strip().strip("/")
+    run_id = raw.split("/")[-1]
+
+    candidates = [
+        output_root / base / raw / "metadata",
+        output_root / raw / "metadata",
+        output_root / base / run_id / "metadata",
+        output_root / run_id / "metadata",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    # 兜底：在 base_version 下递归查找 run_id（覆盖 version_subdir 任意深度）
+    for match in output_root.glob(f"{base}/**/{run_id}/metadata"):
+        if match.is_dir():
+            return match
+
+    # 都不存在：返回最可能的路径，由调用方的 exists() 判断给出明确报错
+    return candidates[0]
 
 
 def full_state_file(spec: FrozenExperiment) -> Path | None:
