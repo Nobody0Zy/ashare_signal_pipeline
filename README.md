@@ -66,10 +66,14 @@ ashare_signal_pipeline/
 
 ## 环境要求
 
-- Python 3.11
-- 建议使用独立 conda 环境
+- Python **3.11.x**（conda 环境、系统 Python、venv、pyenv 均可，不限定 conda）
+- 以下 11 项依赖可导入：
+  `numpy` `pandas` `pyarrow` `PyYAML` `tsfresh` `lightgbm`
+  `scipy` `scikit-learn` `matplotlib` `psutil` `markdown`
 - 能读取 `parquet` / `pickle` 数据文件
-- 具备运行 LightGBM 与 tsfresh 所需的依赖
+
+> 环境准备由使用者完成；agent 只负责探测与执行。解释器发现顺序见
+> `docs/13_agent_bootstrap_prompt.md` §4.2。
 
 ## 使用提醒
 

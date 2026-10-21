@@ -28,6 +28,7 @@
 | `{{TEMPLATE_URL}}` | 模板仓库地址 | `https://github.com/<owner>/ashare_signal_pipeline.git` | 克隆到错误仓库 |
 | `{{TEMPLATE_REF}}` | 固定版本（tag 或 commit） | `v1.0.3` | 不 pin 会拿到漂移的内核 |
 | `{{TEMPLATE_COMMIT}}` | 该 ref 对应的完整 commit hash | `129eb2cfb16c...` | 无法在浅克隆下校验版本 |
+| `{{PYTHON}}` | 已准备好的 Python 3.11 解释器路径 | `C:\Python311\python.exe` | agent 无法执行后续命令 |
 | `{{TARGET_DIR}}` | 新仓库落地目录（绝对路径） | `D:\lab\lowvol` | 写已有目录会覆盖 |
 | `{{BASE_VERSION}}` | 样本族名 | `lowvol` | 输出目录与注册表全错 |
 | `{{VERSION_SUBDIR}}` | 族内版本目录 | `v0` | 与既有版本混叠 |
@@ -56,6 +57,7 @@
 TEMPLATE_URL   = {{TEMPLATE_URL}}
 TEMPLATE_REF   = {{TEMPLATE_REF}}
 TEMPLATE_COMMIT= {{TEMPLATE_COMMIT}}
+PYTHON         = {{PYTHON}}
 TARGET_DIR     = {{TARGET_DIR}}
 BASE_VERSION   = {{BASE_VERSION}}
 VERSION_SUBDIR = {{VERSION_SUBDIR}}
@@ -69,13 +71,19 @@ REMOTE_URL     = {{REMOTE_URL}}
 
 【阶段 0 · 环境探测】结果填入证据表，任一不满足则停止报告
   1. 找到可用的 Python 解释器：版本需为 3.11.x
-  2. 该解释器能 import：numpy pandas lightgbm tsfresh pyarrow yaml
+     发现顺序见本文档 §4.2；不要假定一定存在 conda。
+  2. 该解释器能 import 以下 11 项：
+       numpy pandas pyarrow yaml tsfresh lightgbm
+       scipy sklearn matplotlib psutil markdown
   3. 到 TEMPLATE_URL 的网络可达（git ls-remote 成功）
   4. TARGET_DIR 不存在，或其父目录可写
   5. 磁盘剩余空间 >= 5 GB
 
-  禁止：为通过探测而自行 pip install / conda install / 更换解释器。
-  依赖版本会改变特征集，导致结果不可比。不满足就停下来问我。
+  角色区分（重要）：
+    - 环境准备（装 Python、装依赖、建虚拟环境）由用户在启动本任务之前完成。
+    - 本任务处于环境探测阶段：禁止自行 pip install / conda install / 更换解释器。
+    - 依赖版本会改变 tsfresh 计算器集合，导致特征列静默变化、结果不可比。
+    - 探测不通过时停止并把缺失项报给用户，由用户决定如何补齐。
 
 【阶段 1 · 克隆】
   git clone --branch TEMPLATE_REF --depth 1 TEMPLATE_URL TARGET_DIR
@@ -200,24 +208,142 @@ REMOTE_URL     = {{REMOTE_URL}}
 | 项 | 判据 | 不满足的后果 | 为什么不让 agent 自行修复 |
 | :--- | :--- | :--- | :--- |
 | Python 版本 | `3.11.x` | 语法/依赖不兼容 | 换版本会改变依赖解析结果 |
-| 六项依赖可导入 | 能 import、不报错 | 中途失败，浪费前面步骤 | 装新版会改变 tsfresh 计算器集合 |
+| 11 项依赖可导入 | 能 import、不报错 | 中途失败，浪费前面步骤 | 装新版会改变 tsfresh 计算器集合 |
 | 网络可达 | `git ls-remote` 成功 | 无法克隆 | 猜代理只会浪费轮次 |
 | 目标目录可用 | 不存在或父目录可写 | 覆盖已有工作 | — |
 | 磁盘余量 | `>= 5 GB` | smoke 尚可，full 会爆盘 | — |
 
 > **为什么依赖版本如此关键**：模板冻结了 `seed=42`、`num_threads=1`、`chunk_size` 等确定性参数，但 tsfresh 的**计算器集合**随版本变化。升级后特征列会静默改变，`calendar_gain_share` 之外的指标也随之变化，结论不可比。
 
-### 4.1 平台支持
+### 4.1 依赖完整清单
+
+阶段 0 要求 11 项全部可导入。缺任意一项都可能让流程走到中途才失败：
+
+| # | 包 | 首次用到的位置 | 缺失时的表现 |
+| :---: | :--- | :--- | :--- |
+| 1 | `numpy` | 全链路 | step1 即失败 |
+| 2 | `pandas` | 全链路 | step1 即失败 |
+| 3 | `pyarrow` | step1 写 parquet | step1 即失败 |
+| 4 | `PyYAML` | `config.py` | 配置加载失败 |
+| 5 | `tsfresh` | step4 | step4 失败 |
+| 6 | `lightgbm` | step6 | step6 失败 |
+| 7 | `scipy` | `step6_model.py` 的 `scipy.stats` | **step6 失败** |
+| 8 | `scikit-learn` | `step6_model.py` 的 `sklearn.metrics` | **step6 失败** |
+| 9 | `matplotlib` | `analyze_experiment_results.py`、`bagging.py` | **分析/集成阶段失败** |
+| 10 | `psutil` | `monitoring.py` | 开启 monitoring 时失败 |
+| 11 | `markdown` | `md_report_to_html.py` | 报告转 HTML 失败 |
+
+> 前 6 项是"早期就知道缺"，后 5 项是"跑很久才缺"。阶段 0 一次查全，避免跑到 step6 才发现。
+
+### 4.2 解释器发现顺序
+
+不同机器上 Python 的来源差异很大，**不要假定存在 conda，也不要假定 `python` 在 PATH 上**。
+按下面顺序找，找到即停：
+
+| 序 | 来源 | 探测命令 | 说明 |
+| :---: | :--- | :--- | :--- |
+| 1 | conda 命令 | `conda env list` | 有 conda 且在 PATH 时最快；环境名任意，不要求 `factor311` |
+| 2 | **conda 安装目录**（不依赖命令） | 枚举 `<conda_root>\envs\*\python.exe` | **`conda` 不在 PATH 但环境存在时唯一可行路径**（实测踩过） |
+| 3 | py launcher | `py -0p` / `py -3.11 -c "import sys;print(sys.executable)"` | Windows 装了 Python 就有，**不需要 PATH** |
+| 4 | 注册表与常见路径 | `HKLM:\SOFTWARE\Python\PythonCore`、`%LOCALAPPDATA%\Programs\Python\Python311`、`C:\Python311` | 覆盖安装时未勾 PATH 的情况 |
+| 5 | PATH | `where.exe python` / `Get-Command python -All` | 可能有多个，需逐个验证版本 |
+| 6 | 都没有 | 由用户安装（见 §4.3） | agent 不自行安装 |
+
+对每个候选，都必须同时满足：`--version` 为 3.11.x **且** 11 项依赖可导入。
+只有版本对但缺依赖的，记录下来报给用户，不要当成"找到"。
+
+**必须跳过 Windows 应用商店别名**：`%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是一个
+指向商店的 stub，执行时输出 "Python was not found but can be installed from the Microsoft Store"。
+它不是真正的解释器，必须识别并跳过，否则会误判为"找到了 Python"。
+
+> PowerShell 探测脚本示例（可直接粘贴）：
+>
+> ```powershell
+> $cands = @()
+>
+> # 1) conda 命令（可能不存在）
+> if (Get-Command conda -ErrorAction SilentlyContinue) {
+>   (& conda env list) -split "`n" | Where-Object { $_ -match '^\S' -and $_ -notmatch '^#' } |
+>     ForEach-Object { $p = ($_ -split '\s+')[-1].Trim(); if ($p) { $cands += "$p\python.exe" } }
+> }
+>
+> # 2) conda 安装目录（conda 不在 PATH 时的补救）
+> foreach ($root in @('C:\ProgramData\anaconda3','C:\ProgramData\miniconda3',
+>                     "$env:USERPROFILE\anaconda3","$env:USERPROFILE\miniconda3")) {
+>   if (Test-Path "$root\python.exe") { $cands += "$root\python.exe" }
+>   if (Test-Path "$root\envs") {
+>     Get-ChildItem "$root\envs" -Directory -ErrorAction SilentlyContinue |
+>       ForEach-Object { $cands += "$($_.FullName)\python.exe" }
+>   }
+> }
+>
+> # 3) py launcher
+> if (Get-Command py -ErrorAction SilentlyContinue) {
+>   $p = ((& py -3.11 -c "import sys;print(sys.executable)" 2>$null) -join '').Trim()
+>   if ($p) { $cands += $p }
+> }
+>
+> # 4) 常见安装路径
+> $cands += @("$env:LOCALAPPDATA\Programs\Python\Python311\python.exe", "C:\Python311\python.exe")
+>
+> # 5) PATH
+> $cands += (Get-Command python -All -ErrorAction SilentlyContinue | ForEach-Object { $_.Source })
+>
+> foreach ($c in ($cands | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique)) {
+>   # 跳过 Windows 应用商店别名
+>   if ($c -match '\\Microsoft\\WindowsApps\\') { "{0,-72} SKIP (store alias)" -f $c; continue }
+>   $v = ((& $c --version 2>&1) -join '')
+>   if ($v -notmatch '3\.11') { "{0,-72} SKIP ({1})" -f $c, $v.Trim(); continue }
+>   # 必须 -join 后再比较：stderr 混入时 & 返回的是数组而非字符串
+>   $ok = ((& $c -c "import numpy,pandas,pyarrow,yaml,tsfresh,lightgbm,scipy,sklearn,matplotlib,psutil,markdown;print('OK')" 2>&1) -join '').Trim()
+>   if ($ok -eq 'OK') { "{0,-72} USABLE" -f $c }
+>   else { "{0,-72} MISSING: {1}" -f $c, ($ok -split "`n" | Select-Object -Last 1) }
+> }
+> ```
+
+> **三个实测踩过的陷阱**：
+> 1. `& $exe ...` 在 stderr 有输出时返回**数组**而不是字符串。比较前必须 `-join ''`。
+> 2. 不要把多行脚本存成字符串用 `&` 执行；存成 `.ps1` 文件再跑。写文件时用 **UTF-8 无 BOM**，
+>    否则中文会被破坏、引号闭合失败。
+> 3. `conda` 可能不在 PATH 上，但 `factor311` 之类的环境仍然存在——
+>    此时只能靠第 2 步直接枚举 `envs` 目录。
+
+### 4.3 没有可用解释器时（用户侧操作）
+
+agent 在阶段 0 报告"未找到可用解释器"后，由用户补齐。**不要求使用 conda**：
+
+```powershell
+# 方案 A：winget 安装（Win10 1809+ / Win11）
+winget install -e --id Python.Python.3.11
+
+# 方案 B：python.org 官方安装包（离线/老系统）
+#   下载 Python 3.11.x Windows installer，安装时勾选 "py launcher"
+#   注意：不要用 embeddable zip，它默认没有 pip
+```
+
+装完后建独立虚拟环境并装依赖（**这一步是用户做的，不是 agent**）：
+
+```powershell
+py -3.11 -m venv $env:USERPROFILE\.venv-asp
+& "$env:USERPROFILE\.venv-asp\Scripts\python.exe" -m pip install --upgrade pip
+& "$env:USERPROFILE\.venv-asp\Scripts\python.exe" -m pip install `
+    numpy pandas pyarrow PyYAML tsfresh lightgbm `
+    scipy scikit-learn matplotlib psutil markdown
+```
+
+补齐后重新执行阶段 0，把该解释器路径填入 `{{PYTHON}}`。
+
+> **用什么解释器都行**：conda 环境、系统 Python、venv、pyenv 均可。
+> 唯一硬性要求是 Python 3.11.x + 11 项依赖可导入。
+
+### 4.4 平台支持
 
 | 项 | 状态 |
 | :--- | :--- |
-| Windows + PowerShell | 已验证 |
-| Linux / macOS + bash | 结构上支持；具体步骤把 PowerShell 语法换成等价 bash 即可 |
-| 路径处理 | 代码统一使用 `pathlib`，不依赖盘符 |
-| 命令形式 | capsule 中的复跑命令以 `python ` 开头，不绑定解释器绝对路径，跨平台可用 |
-
-> 换平台时**唯一需要重写的是第 3 节的示例命令**（`Set-Location` → `cd`、`Copy-Item` → `cp`）。
-> 阶段划分、判据、自检门与产物结构完全一致。
+| Windows + PowerShell | **已验证**（同一 OS 内跨目录、跨解释器路径） |
+| 另一台 Windows 设备 | 结构上支持；步骤相同，仅解释器路径与数据路径不同 |
+| Linux / macOS + bash | **未验证**；代码用 `pathlib`，结构上支持，但需把第 3 节示例换成等价 bash |
+| 命令形式 | capsule 中的复跑命令以 `python ` 开头，不绑定解释器绝对路径 |
 
 ---
 
@@ -373,5 +499,6 @@ Select-String -Path design/**/*.md -Pattern 'anaconda|C:/|C:\\|/usr/bin'
 | v1.0.5 | 修正 `.gitignore`：`data/raw/*` 原先未被忽略，`git add -A` 会提交数百 MB 原始数据；阶段 7 改为显式提交 `outputs/experiment_registry.json` |
 | v1.0.6 | 新增 §8 用作模板回归（含 capsule 检查 R3，覆盖 smoke 盲区）；`_closeout_common` 去掉硬编码解释器与 PowerShell 围栏 |
 | v1.0.7 | 修正 `metadata_dir()`：原先只认 `outputs/<base_version>/<run_id>/` 两段式，未覆盖 `version_subdir` 引入的 `outputs/<base_version>/<version_subdir>/<run_id>/` 三段式，导致 R3 在首次回归时直接失败 |
+| v1.0.8 | 阶段 0 依赖清单 6 项 → 11 项（补 scipy / sklearn / matplotlib / psutil / markdown）；新增 §4.2 解释器发现顺序（conda / py launcher / 注册表 / PATH）、§4.3 无解释器时的安装指引；明确"环境准备由用户做、环境探测由 agent 做"的角色区分；§4.4 平台声明改为准确表述 |
 
 > 本文与 `12_clone_and_start.md` 描述同一条路径，但读者不同：前者面向 agent（指令式），后者面向人（解释式）。两者内容若冲突，以本文的阶段划分与判据为准。
