@@ -69,6 +69,31 @@
 
 > 只做验证就用第一种；要开长期谱系用第二种。混用会踩 `origin` 指向的坑。
 
+### 2.3 数据前提（不可省略）
+
+**模板不包含任何样本数据。** 仓库里 `data/raw/` 只有一个 `.gitkeep`，
+真实数据被 `.gitignore` 排除（`data/raw/*`），因此 `git clone` 拿不到。
+
+| 项 | 值 |
+| :--- | :--- |
+| 必需文件 | `data/raw/holding_stats_all.parquet`、`data/raw/dateBar.pkl` |
+| 参考体积 | 约 549 MB（parquet 14 MB + pkl 534 MB） |
+| 来源 | 由使用者提供（U 盘、网络共享、内部数据平台等） |
+| 是否随模板分发 | **否** |
+
+`{{DATA_DIR}}` **不能留空**。阶段 3（数据契约）与阶段 5（smoke）都要读真实文件；
+没有数据时，只能验证克隆与 scaffold，无法验证管道是否真能跑。
+
+若暂时没有数据，可选做法：
+
+| 方案 | 覆盖 | 说明 |
+| :--- | :--- | :--- |
+| 拷贝真实数据 | 100% | 推荐；549 MB 可用 U 盘或共享目录 |
+| 仅结构验证 | ~55% | 跳过阶段 3/5/6/6.5，只验克隆、scaffold、配置快照、日历开关 |
+
+> 拿到数据后，先跑 `pipeline/adapters/sample_family.py --show-contract` 确认列结构，
+> 再放进 `data/raw/`。缺列时不要硬跑——阶段 3 会中止。
+
 命名规则（`BASE_VERSION`）：
 
 - 只用小写字母、数字、下划线；
@@ -213,8 +238,15 @@ ENV_SETUP      = {{ENV_SETUP}}     # auto | forbidden
        fork 自、fork 日期、样本族、数据来源、本轮目标、是否修改内核
 
 【阶段 3 · 数据契约】
-  python pipeline/adapters/sample_family.py --show-contract
-  把 DATA_DIR 下的 holding_stats_all.parquet 与 dateBar.pkl 放入 data/raw/
+  前置检查（任一不满足则停止报告，不要跳过本阶段继续）：
+    - DATA_DIR 已填写，且目录存在
+    - DATA_DIR\holding_stats_all.parquet 存在
+    - DATA_DIR\dateBar.pkl 存在
+  缺数据时报告："DATA_DIR 未提供或缺少必要文件，无法执行数据契约与 smoke"，
+  不要用空文件、伪造数据或跳过阶段 5 的方式绕过。
+
+  <PYTHON> pipeline/adapters/sample_family.py --show-contract
+  把 DATA_DIR 下的 holding_stats_all.parquet 与 dateBar.pkl 复制到 data/raw/
   校验两文件都存在，且字段覆盖契约要求的列。
   缺字段时停止报告，不要自行补造数据。
 
@@ -329,6 +361,7 @@ ENV_SETUP      = {{ENV_SETUP}}     # auto | forbidden
 出现以下任一情况，立即停止并报告（阶段编号 / 完整命令 / 完整 stderr / 已尝试动作 / 建议）：
 - 阶段 0 任一探测项不满足（ENV_SETUP=forbidden 时）
 - ENV_SETUP=auto 时安装失败，或装完后 11 项仍不全
+- DATA_DIR 为空、目录不存在，或缺少 holding_stats_all.parquet / dateBar.pkl
 - 克隆失败或 HEAD 与 TEMPLATE_COMMIT 不符
 - 数据契约缺字段
 - 生成配置中日历开关不为 false
@@ -676,5 +709,6 @@ git commit -m "import template TEMPLATE_REF"
 | v1.0.8 | 阶段 0 依赖清单 6 项 → 11 项（补 scipy / sklearn / matplotlib / psutil / markdown）；新增 §4.2 解释器发现顺序、§4.3 安装指引；§4.4 平台声明改为准确表述 |
 | v1.0.9 | 提示词自包含：探测脚本内联进阶段 0，不再要求 agent 另查 §4.2；新增 `{{MODE}}`（first-run / regression）与**阶段 6.5 capsule 检查**，使 R3 随提示词自动执行；新增 `{{ENV_SETUP}}`（auto / forbidden），auto 时允许建 venv 装**钉版依赖集**；修正交付格式中的"六项依赖"→ 11 项；自检门扩为 G1–G5 |
 | v1.0.10 | 修正 `PUSH=yes` 的 remote 处理：直连 clone 后 `origin` 已指向模板，`remote add` 会报错且存在把谱系推到模板的风险；改为 `set-url` 并新增 **push 前安全守卫**（`origin == TEMPLATE_URL` 时禁止 push）。新增 §2.2「验证 vs 开谱系：先选对获取方式」，并在阶段 1 标注本提示词使用直连 clone 的理由 |
+| v1.0.11 | 新增 §2.3「数据前提」：明确模板不含样本数据、`{{DATA_DIR}}` 不能留空、参考体积与两种降级方案；阶段 3 增加前置检查（缺文件即停止），阻塞清单同步；README 与 docs/12 §5.1 补充「数据不随模板分发」 |
 
 > 本文与 `12_clone_and_start.md` 描述同一条路径，但读者不同：前者面向 agent（指令式），后者面向人（解释式）。两者内容若冲突，以本文的阶段划分与判据为准。

@@ -76,9 +76,14 @@ ashare_signal_pipeline/
   `numpy` `pandas` `pyarrow` `PyYAML` `tsfresh` `lightgbm`
   `scipy` `scikit-learn` `matplotlib` `psutil` `markdown`
 - 能读取 `parquet` / `pickle` 数据文件
+- **原始数据需自行提供**：`data/raw/holding_stats_all.parquet` 与 `data/raw/dateBar.pkl`
+  （参考体积约 549 MB）
 
 > 环境准备由使用者完成；agent 只负责探测与执行。解释器发现顺序见
 > `docs/13_agent_bootstrap_prompt.md` §4.2。
+
+> **模板不含样本数据。** `data/raw/` 只有 `.gitkeep`，真实数据被 `.gitignore` 排除，
+> `git clone` 不会带来数据。数据获取方式与前置检查见 `docs/13` §2.3。
 
 ## 使用提醒
 

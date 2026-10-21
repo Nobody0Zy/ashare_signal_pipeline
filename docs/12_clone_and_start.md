@@ -131,10 +131,16 @@ New-Item -ItemType Directory -Path design\<base_version>\<version_subdir> -Force
 
 ### 5.1 放入原始数据
 
+**模板不含样本数据。** `data/raw/` 出厂只有 `.gitkeep`，真实数据被 `.gitignore` 排除，
+`git clone` 不会带来数据，必须自行提供。
+
 | 文件 | 位置 | 说明 |
 | :--- | :--- | :--- |
-| `holding_stats_all.parquet` | `data/raw/` | 已平仓交易样本 |
-| `dateBar.pkl` | `data/raw/` | 后复权日线 |
+| `holding_stats_all.parquet` | `data/raw/` | 已平仓交易样本（约 14 MB） |
+| `dateBar.pkl` | `data/raw/` | 后复权日线（约 534 MB） |
+
+没有数据时无法执行阶段 3、5、6，只能验证克隆与 scaffold。
+数据获取方式见 `docs/13_agent_bootstrap_prompt.md` §2.3。
 
 先确认契约：
 
