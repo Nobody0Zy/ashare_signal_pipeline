@@ -55,6 +55,20 @@
 > `ENV_SETUP=auto` 的约束：只装钉版版本、只装进 TARGET_DIR 之外的新 venv、
 > 不改动系统 Python 与已有 conda 环境。这样才不会让特征列因版本漂移而静默变化。
 
+### 2.2 验证 vs 开谱系：先选对获取方式
+
+| 场景 | 获取方式 | `PUSH` | 说明 |
+| :--- | :--- | :--- | :--- |
+| **验证模板 / 回归** | 直连 clone 模板（可 pin `TEMPLATE_REF`） | `no` | `commit` 只落本地，不碰模板 |
+| **开新谱系并长期维护** | ① `Use this template` 生成独立仓库后 clone<br>② 或直连 clone + 改 `origin`（docs/12 §3.2） | `yes` | 生成式仓库无 tag，但 `origin` 天然正确 |
+
+关键区别：
+
+- **直连 clone 后 `origin` 指向模板仓库**。此时 `push` 会把内容推到模板上，必须先改地址。
+- **`Use this template` 生成的仓库没有 tag**，所以不能用 `--branch TEMPLATE_REF`，但也因此不需要改 `origin`。
+
+> 只做验证就用第一种；要开长期谱系用第二种。混用会踩 `origin` 指向的坑。
+
 命名规则（`BASE_VERSION`）：
 
 - 只用小写字母、数字、下划线；
@@ -178,6 +192,13 @@ ENV_SETUP      = {{ENV_SETUP}}     # auto | forbidden
     - git rev-parse HEAD 等于 TEMPLATE_COMMIT
     - git status --short 为空
     - 工作树文件数与模板一致（当前版本为 54）
+    - git remote get-url origin 等于 TEMPLATE_URL（记下这个事实，阶段 7 要用）
+
+  本提示词固定使用【直连 clone 模板】的方式，目的是 pin 到 TEMPLATE_REF 从而可复现。
+  若你要长期维护一个 GitHub 谱系仓库（而不是本地验证），推荐改用
+  「Use this template 生成独立仓库后再 clone」——那种仓库没有 tag，
+  不能用 --branch TEMPLATE_REF，但 origin 天然指向你自己的仓库，无需改地址。
+  两种方式的取舍见 docs/12 §1 与 §3。
   
   若 clone 失败：
     按顺序尝试：① 读取系统代理后带代理重试 ② 改用 HTTP/1.1 重试
@@ -269,11 +290,28 @@ ENV_SETUP      = {{ENV_SETUP}}     # auto | forbidden
   若发现它出现在待提交列表里，说明 .gitignore 被改动，停止报告。
 
   若 PUSH=no：不执行任何 push，报告里写明"未推送"。
+
+  ⚠️ push 前的安全守卫（PUSH=yes 时必做）：
+       git remote get-url origin
+     若输出等于 TEMPLATE_URL → 立即停止报告：
+       "origin 仍指向模板仓库，禁止 push，否则会污染模板"
+     这是直连 clone 的默认状态；必须在 push 之前先改地址。
+
   若 PUSH=yes：
-      git remote add origin REMOTE_URL
+      # 直连 clone 后 origin 已存在且指向模板，必须改地址而不是新增
+      # （新增会报 "remote origin already exists"；对不存在的 remote 用 set-url 会报
+      #   "No such remote 'origin'"）
+      git remote get-url origin
+      # 若上面报错（origin 不存在）→ git remote add origin REMOTE_URL
+      # 若上面成功（origin 指向模板） → git remote set-url origin REMOTE_URL
+      git remote get-url origin                 # 必须等于 REMOTE_URL
       git ls-remote --heads origin    # 可写时继续
       git push -u origin main
       禁止 --force。
+
+  若需要保留模板为 upstream（日后吸收模板改进），在阶段 2 追加：
+      git remote rename origin upstream
+      然后在本阶段用 git remote add origin REMOTE_URL
 
 【禁止事项】
 1. 不修改 pipeline/ 或 tools/ 下任何代码。需要改才能通过 → 停止报告。
@@ -297,6 +335,7 @@ ENV_SETUP      = {{ENV_SETUP}}     # auto | forbidden
 - 任一 smoke 步骤失败
 - calendar_gain_share != 0
 - MODE=regression 时 6.5 的任一断言失败
+- PUSH=yes 时 origin 仍等于 TEMPLATE_URL（未经改地址就试图 push）
 - 需要改内核代码才能继续
 
 【交付格式】
@@ -636,5 +675,6 @@ git commit -m "import template TEMPLATE_REF"
 | v1.0.7 | 修正 `metadata_dir()`：原先只认 `outputs/<base_version>/<run_id>/` 两段式，未覆盖 `version_subdir` 引入的 `outputs/<base_version>/<version_subdir>/<run_id>/` 三段式，导致 R3 在首次回归时直接失败 |
 | v1.0.8 | 阶段 0 依赖清单 6 项 → 11 项（补 scipy / sklearn / matplotlib / psutil / markdown）；新增 §4.2 解释器发现顺序、§4.3 安装指引；§4.4 平台声明改为准确表述 |
 | v1.0.9 | 提示词自包含：探测脚本内联进阶段 0，不再要求 agent 另查 §4.2；新增 `{{MODE}}`（first-run / regression）与**阶段 6.5 capsule 检查**，使 R3 随提示词自动执行；新增 `{{ENV_SETUP}}`（auto / forbidden），auto 时允许建 venv 装**钉版依赖集**；修正交付格式中的"六项依赖"→ 11 项；自检门扩为 G1–G5 |
+| v1.0.10 | 修正 `PUSH=yes` 的 remote 处理：直连 clone 后 `origin` 已指向模板，`remote add` 会报错且存在把谱系推到模板的风险；改为 `set-url` 并新增 **push 前安全守卫**（`origin == TEMPLATE_URL` 时禁止 push）。新增 §2.2「验证 vs 开谱系：先选对获取方式」，并在阶段 1 标注本提示词使用直连 clone 的理由 |
 
 > 本文与 `12_clone_and_start.md` 描述同一条路径，但读者不同：前者面向 agent（指令式），后者面向人（解释式）。两者内容若冲突，以本文的阶段划分与判据为准。
