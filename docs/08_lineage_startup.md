@@ -41,7 +41,7 @@
    在配置中设置 `experiment.version_subdir: <version_subdir>`，并把该配置注册到 `configs/experiment_index.yaml`。
 
 7. **先做 smoke**  
-   使用 `--mode smoke --smoke 5000 --step 1..6` 的逐步执行方式，每步独立 state-file。
+   使用 `--mode smoke --smoke 5000 --step 1..6` 的逐步执行方式，六步共用同一个 state-file（不同验证路径之间再各自分开）。
 
 8. **full 前复核硬边界**  
    确认相邻集合的缓冲带 ≥60 个交易日，同时检查 `calendar_gain_share` 接近 0。
