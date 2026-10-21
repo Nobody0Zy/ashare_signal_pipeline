@@ -37,6 +37,23 @@
 | `{{SMOKE_N}}` | 冒烟样本量 | `500` | 过小无意义、过大耗时长 |
 | `{{PUSH}}` | 是否推送远端 | `no` / `yes` | 误推到模板仓库 |
 | `{{REMOTE_URL}}` | 新远端地址（`PUSH=yes` 时必填） | `https://github.com/<you>/<repo>.git` | 推错位置 |
+| `{{MODE}}` | 运行模式 | `first-run` / `regression` | `regression` 才会执行 capsule 检查 |
+| `{{ENV_SETUP}}` | 缺依赖时是否允许自行安装 | `auto` / `forbidden` | `auto` 会建 venv 装钉版依赖 |
+
+### 2.1 MODE 与 ENV_SETUP 的选择
+
+| 参数 | 取值 | 行为 |
+| :--- | :--- | :--- |
+| `MODE` | `first-run` | 阶段 0–7；不检查 capsule。适合日常开新谱系。 |
+| | `regression` | 阶段 0–7 + **阶段 6.5 capsule 检查**。适合验证模板、升级后回归。 |
+| `ENV_SETUP` | `auto` | 缺依赖时自动建 venv 并安装**钉版依赖集**；无 3.11 时可用 winget 安装。 |
+| | `forbidden` | 缺依赖就停下报告，由用户补齐。 |
+
+**默认建议**：`MODE=regression` + `ENV_SETUP=auto`（首次在新设备验证）；
+之后日常开谱系用 `MODE=first-run`。
+
+> `ENV_SETUP=auto` 的约束：只装钉版版本、只装进 TARGET_DIR 之外的新 venv、
+> 不改动系统 Python 与已有 conda 环境。这样才不会让特征列因版本漂移而静默变化。
 
 命名规则（`BASE_VERSION`）：
 
@@ -66,12 +83,14 @@ DATA_DIR       = {{DATA_DIR}}
 SMOKE_N        = {{SMOKE_N}}
 PUSH           = {{PUSH}}
 REMOTE_URL     = {{REMOTE_URL}}
+MODE           = {{MODE}}          # first-run | regression
+ENV_SETUP      = {{ENV_SETUP}}     # auto | forbidden
 
 若上面有未填项，先向我追问，不要自行假设。
 
-【阶段 0 · 环境探测】结果填入证据表，任一不满足则停止报告
+【阶段 0 · 环境探测】结果填入证据表，任一不满足按 ENV_SETUP 规则处理
   1. 找到可用的 Python 解释器：版本需为 3.11.x
-     发现顺序见本文档 §4.2；不要假定一定存在 conda。
+     （发现顺序与脚本见下方"解释器发现脚本"，直接执行，不要凭猜）
   2. 该解释器能 import 以下 11 项：
        numpy pandas pyarrow yaml tsfresh lightgbm
        scipy sklearn matplotlib psutil markdown
@@ -79,11 +98,74 @@ REMOTE_URL     = {{REMOTE_URL}}
   4. TARGET_DIR 不存在，或其父目录可写
   5. 磁盘剩余空间 >= 5 GB
 
-  角色区分（重要）：
-    - 环境准备（装 Python、装依赖、建虚拟环境）由用户在启动本任务之前完成。
-    - 本任务处于环境探测阶段：禁止自行 pip install / conda install / 更换解释器。
-    - 依赖版本会改变 tsfresh 计算器集合，导致特征列静默变化、结果不可比。
-    - 探测不通过时停止并把缺失项报给用户，由用户决定如何补齐。
+  ── 解释器发现脚本（PowerShell，逐条执行）──
+  $cands = @()
+  if (Get-Command conda -ErrorAction SilentlyContinue) {
+    (& conda env list) -split "`n" | Where-Object { $_ -match '^\S' -and $_ -notmatch '^#' } |
+      ForEach-Object { $p = ($_ -split '\s+')[-1].Trim(); if ($p) { $cands += "$p\python.exe" } }
+  }
+  foreach ($root in @('C:\ProgramData\anaconda3','C:\ProgramData\miniconda3',
+                      "$env:USERPROFILE\anaconda3","$env:USERPROFILE\miniconda3")) {
+    if (Test-Path "$root\python.exe") { $cands += "$root\python.exe" }
+    if (Test-Path "$root\envs") {
+      Get-ChildItem "$root\envs" -Directory -ErrorAction SilentlyContinue |
+        ForEach-Object { $cands += "$($_.FullName)\python.exe" }
+    }
+  }
+  if (Get-Command py -ErrorAction SilentlyContinue) {
+    $p = ((& py -3.11 -c "import sys;print(sys.executable)" 2>$null) -join '').Trim()
+    if ($p) { $cands += $p }
+  }
+  $cands += @("$env:LOCALAPPDATA\Programs\Python\Python311\python.exe","C:\Python311\python.exe")
+  $cands += (Get-Command python -All -ErrorAction SilentlyContinue | ForEach-Object { $_.Source })
+
+  foreach ($c in ($cands | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique)) {
+    if ($c -match '\\Microsoft\\WindowsApps\\') { "{0,-72} SKIP (store alias)" -f $c; continue }
+    $v = ((& $c --version 2>&1) -join '')
+    if ($v -notmatch '3\.11') { "{0,-72} SKIP ({1})" -f $c, $v.Trim(); continue }
+    $ok = ((& $c -c "import numpy,pandas,pyarrow,yaml,tsfresh,lightgbm,scipy,sklearn,matplotlib,psutil,markdown;print('OK')" 2>&1) -join '').Trim()
+    if ($ok -eq 'OK') { "{0,-72} USABLE" -f $c }
+    else { "{0,-72} MISSING: {1}" -f $c, ($ok -split "`n" | Select-Object -Last 1) }
+  }
+  ── 脚本结束 ──
+
+  ENV_SETUP 规则：
+    forbidden（默认）
+      - 只能使用探测到的 USABLE 解释器。
+      - 缺依赖 / 没有 3.11 → 停止报告，由用户补齐。
+    auto
+      - 若找到 3.11 但缺依赖：允许建独立 venv 并安装下方"钉版依赖集"。
+      - 若完全没有 3.11：允许用 winget 安装 Python 3.11，再建 venv 装依赖。
+      - 安装位置必须在 TARGET_DIR 之外（例：$env:USERPROFILE\.venv-asp）。
+      - 严禁改动系统 Python、conda base、或其他已有环境。
+      - 必须使用"钉版依赖集"中的精确版本，不得升级/降级。
+      - 安装后重新执行探测，确认 11 项全绿，并把实际版本写入证据表。
+
+  ── 钉版依赖集（与模板验证环境一致，必须用这些版本）──
+  numpy==1.26.4
+  pandas==2.2.2
+  pyarrow==21.0.0
+  PyYAML==6.0.3
+  tsfresh==0.21.2
+  lightgbm==4.6.0
+  scipy==1.17.1
+  scikit-learn==1.7.2
+  matplotlib==3.9.2
+  psutil==7.1.1
+  markdown==3.10.3
+  （Python 3.11.x；参考环境为 3.11.13）
+
+  auto 模式的安装命令模板：
+    py -3.11 -m venv $env:USERPROFILE\.venv-asp
+    & "$env:USERPROFILE\.venv-asp\Scripts\python.exe" -m pip install --upgrade pip
+    & "$env:USERPROFILE\.venv-asp\Scripts\python.exe" -m pip install `
+        numpy==1.26.4 pandas==2.2.2 pyarrow==21.0.0 PyYAML==6.0.3 `
+        tsfresh==0.21.2 lightgbm==4.6.0 scipy==1.17.1 `
+        scikit-learn==1.7.2 matplotlib==3.9.2 psutil==7.1.1 markdown==3.10.3
+    # 之后 PYTHON 改用该 venv 的 python.exe
+
+  为什么必须钉版：tsfresh 的计算器集合随版本变化，会导致特征列静默改变；
+  不钉版就无法与模板的历史结果对比。
 
 【阶段 1 · 克隆】
   git clone --branch TEMPLATE_REF --depth 1 TEMPLATE_URL TARGET_DIR
@@ -144,6 +226,36 @@ REMOTE_URL     = {{REMOTE_URL}}
   
   第 4 条是硬门：非 0 说明日历特征被启用，必须停止并报告。
 
+【阶段 6.5 · capsule 可移植性检查】（仅 MODE=regression 执行；first-run 跳过本阶段）
+  目的：smoke 只走 step1~6，不经过 capsule 工具；本阶段补上这个盲区。
+  
+  1. 备份：Copy-Item tools\frozen_experiments.yaml tools\frozen_experiments.yaml.bak
+  2. 用本次 run_id 填充 tools/frozen_experiments.yaml：
+       base_version: "BASE_VERSION"
+       master_library_version: ""
+       master_library_docs: []
+       protected_paths: {}
+       experiments:
+         - experiment_version: <run_id>
+           status: canonical
+           config_path: configs/BASE_VERSION/VERSION_SUBDIR/BASE_VERSION_LABEL.yaml
+           max_step: 6
+           summary_lines:
+             - "MODE=regression 验证"
+  3. 导出：python tools\export_replay_capsule.py <run_id> --output-dir design\_cap
+  4. 断言 A：产物中存在 capsule md 文件
+  5. 断言 B：capsule 内不含本机硬编码
+       Select-String -Path design\_cap\*.md -Pattern 'anaconda|factor311|C:/ProgramData|C:\\ProgramData'
+       期望 0 命中
+  6. 断言 C：复跑命令以 python 开头
+       Select-String -Path design\_cap\*.md -Pattern '^python run_experiment_pipeline'
+       期望 >= 1 命中
+  7. 还原：Move-Item tools\frozen_experiments.yaml.bak tools\frozen_experiments.yaml -Force
+  8. 清理：Remove-Item design\_cap -Recurse -Force
+  
+  任一断言失败 → 停止报告，并注明"这是模板缺陷，不是环境问题"。
+  注意：本阶段会临时修改 frozen_experiments.yaml，必须确保还原成功后再继续。
+
 【阶段 7 · 提交】
   git add configs design outputs/experiment_registry.json
   git commit
@@ -169,34 +281,45 @@ REMOTE_URL     = {{REMOTE_URL}}
 3. 不用删除 outputs/ models/ data/ 的方式重置环境。
 4. 不使用 --mode full。
 5. 不编造任何指标；所有数值必须来自实际文件。
-6. 不自行安装或升级依赖。
+6. 依赖只能按 ENV_SETUP 规则处理：
+   - ENV_SETUP=forbidden：不得安装或升级任何依赖。
+   - ENV_SETUP=auto：只能安装"钉版依赖集"中的精确版本，且只能装进 TARGET_DIR 之外的新 venv；
+     不得升级、不得降级、不得改动系统 Python 或已有 conda 环境。
+7. 不得使用 git push --force。
 
 【阻塞处理】
 出现以下任一情况，立即停止并报告（阶段编号 / 完整命令 / 完整 stderr / 已尝试动作 / 建议）：
-- 阶段 0 任一探测项不满足
-- 克隆失败或 HEAD 与 TEMPLATE_REF 不符
+- 阶段 0 任一探测项不满足（ENV_SETUP=forbidden 时）
+- ENV_SETUP=auto 时安装失败，或装完后 11 项仍不全
+- 克隆失败或 HEAD 与 TEMPLATE_COMMIT 不符
 - 数据契约缺字段
 - 生成配置中日历开关不为 false
 - 任一 smoke 步骤失败
 - calendar_gain_share != 0
+- MODE=regression 时 6.5 的任一断言失败
 - 需要改内核代码才能继续
 
 【交付格式】
-一、环境证据表（解释器路径/版本、六项依赖、网络、磁盘）
+一、环境证据表
+   解释器路径 / Python 版本 / 11 项依赖实际版本 / 网络 / 磁盘
+   若执行了安装：说明原因、venv 路径、安装命令
 二、克隆结果（目录、HEAD、tags、文件数）
 三、本地化（身份、base_version、CONTEXT 摘要）
 四、数据契约（文件清单、契约摘要）
 五、scaffold（生成文件、配置行数、三项日历开关原文、index 条目）
 六、smoke（逐步 exit code、耗时、checks 摘要）
 七、产物与防泄漏（输出目录、文件清单、六步状态、calendar_gain_share）
-八、提交（commit、作者、status）
-九、结论（逐条打勾）
+八、capsule 检查（仅 MODE=regression：断言 A/B/C 结果；first-run 写"已跳过"）
+九、提交（commit、作者、status、是否推送）
+十、结论（逐条打勾）
+   [ ] 环境 11 项依赖齐全（钉版）
    [ ] 未改内核即跑通
    [ ] 配置为完整快照且日历开关全 false
    [ ] 六步 smoke 全通过
    [ ] calendar_gain_share = 0.0
-   [ ] 未改 data/raw、未用 full、未装依赖
-十、未完成项
+   [ ] 未改 data/raw、未用 full
+   [ ] MODE=regression 时 capsule 检查通过
+十一、未完成项
 ```
 
 ---
@@ -247,10 +370,12 @@ REMOTE_URL     = {{REMOTE_URL}}
 | 3 | py launcher | `py -0p` / `py -3.11 -c "import sys;print(sys.executable)"` | Windows 装了 Python 就有，**不需要 PATH** |
 | 4 | 注册表与常见路径 | `HKLM:\SOFTWARE\Python\PythonCore`、`%LOCALAPPDATA%\Programs\Python\Python311`、`C:\Python311` | 覆盖安装时未勾 PATH 的情况 |
 | 5 | PATH | `where.exe python` / `Get-Command python -All` | 可能有多个，需逐个验证版本 |
-| 6 | 都没有 | 由用户安装（见 §4.3） | agent 不自行安装 |
+| 6 | 都没有 | ENV_SETUP=auto → 安装（§4.3）；forbidden → 停下报告 | agent 只在 auto 下自行安装 |
 
 对每个候选，都必须同时满足：`--version` 为 3.11.x **且** 11 项依赖可导入。
-只有版本对但缺依赖的，记录下来报给用户，不要当成"找到"。
+只有版本对但缺依赖的，记录下来；ENV_SETUP=auto 时可建 venv 补齐，否则报给用户。
+
+> 上面的脚本已内联到 §3 提示词的"阶段 0"中，粘贴提示词即可执行，无需再翻本节。
 
 **必须跳过 Windows 应用商店别名**：`%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe` 是一个
 指向商店的 stub，执行时输出 "Python was not found but can be installed from the Microsoft Store"。
@@ -308,33 +433,46 @@ REMOTE_URL     = {{REMOTE_URL}}
 > 3. `conda` 可能不在 PATH 上，但 `factor311` 之类的环境仍然存在——
 >    此时只能靠第 2 步直接枚举 `envs` 目录。
 
-### 4.3 没有可用解释器时（用户侧操作）
+### 4.3 没有可用解释器时
 
-agent 在阶段 0 报告"未找到可用解释器"后，由用户补齐。**不要求使用 conda**：
+分两种情况，取决于 `ENV_SETUP`：
+
+| ENV_SETUP | 行为 |
+| :--- | :--- |
+| `auto` | **agent 自行安装**：winget 装 Python 3.11 → 建 venv → 装钉版依赖 → 重新探测 |
+| `forbidden` | 停止报告，由用户补齐后重新执行 |
+
+**auto 模式的完整步骤**（agent 执行）：
 
 ```powershell
-# 方案 A：winget 安装（Win10 1809+ / Win11）
+# 1) 安装 Python 3.11（若完全没有）
 winget install -e --id Python.Python.3.11
+# 离线/老系统改用 python.org 官方安装包，勾选 "py launcher"；不要用 embeddable zip
 
-# 方案 B：python.org 官方安装包（离线/老系统）
-#   下载 Python 3.11.x Windows installer，安装时勾选 "py launcher"
-#   注意：不要用 embeddable zip，它默认没有 pip
-```
-
-装完后建独立虚拟环境并装依赖（**这一步是用户做的，不是 agent**）：
-
-```powershell
+# 2) 建独立 venv（必须在 TARGET_DIR 之外）
 py -3.11 -m venv $env:USERPROFILE\.venv-asp
 & "$env:USERPROFILE\.venv-asp\Scripts\python.exe" -m pip install --upgrade pip
+
+# 3) 安装钉版依赖（版本见 §3 阶段 0 的"钉版依赖集"，不得改动）
 & "$env:USERPROFILE\.venv-asp\Scripts\python.exe" -m pip install `
-    numpy pandas pyarrow PyYAML tsfresh lightgbm `
-    scipy scikit-learn matplotlib psutil markdown
+    numpy==1.26.4 pandas==2.2.2 pyarrow==21.0.0 PyYAML==6.0.3 `
+    tsfresh==0.21.2 lightgbm==4.6.0 scipy==1.17.1 `
+    scikit-learn==1.7.2 matplotlib==3.9.2 psutil==7.1.1 markdown==3.10.3
+
+# 4) 重新探测
+& "$env:USERPROFILE\.venv-asp\Scripts\python.exe" -c "import numpy,pandas,pyarrow,yaml,tsfresh,lightgbm,scipy,sklearn,matplotlib,psutil,markdown;print('OK')"
 ```
 
-补齐后重新执行阶段 0，把该解释器路径填入 `{{PYTHON}}`。
+装完把该 venv 的 `python.exe` 路径填入 `{{PYTHON}}`，继续阶段 1。
+
+**三条硬约束**（auto 模式下同样适用）：
+
+1. 只装钉版版本，**不得升级或降级**（tsfresh 版本影响计算器集合）。
+2. 只装进 TARGET_DIR 之外**新建的 venv**，不得污染系统 Python、conda base 或已有环境。
+3. 把实际安装的版本写进证据表，便于追溯。
 
 > **用什么解释器都行**：conda 环境、系统 Python、venv、pyenv 均可。
-> 唯一硬性要求是 Python 3.11.x + 11 项依赖可导入。
+> 唯一硬性要求是 Python 3.11.x + 11 项依赖**且版本与钉版集一致**。
 
 ### 4.4 平台支持
 
@@ -353,12 +491,14 @@ py -3.11 -m venv $env:USERPROFILE\.venv-asp
 
 | 门 | 位置 | 通过条件 | 不通过 |
 | :---: | :--- | :--- | :--- |
-| **G1** | 阶段 0 末 | 五项探测全绿 | 停止，不进入克隆 |
+| **G1** | 阶段 0 末 | 五项探测全绿（11 项依赖齐全） | ENV_SETUP=auto 时先尝试安装后复测；仍不绿则停止 |
 | **G2** | 阶段 4 末 | 配置为完整快照、三项日历开关全 false、index 合法 | 停止报告（这是模板缺陷，需回灌） |
 | **G3** | 阶段 5 末 | 六步 `exit=0` 且 `checks_passed=true` | 停止，附失败步骤的 checks |
 | **G4** | 阶段 6 末 | `calendar_gain_share == 0.0` | 停止，说明防泄漏被破坏 |
+| **G5** | 阶段 6.5 末（仅 regression） | capsule 存在、无本机硬编码、命令以 `python` 开头 | 停止，说明工具仍有硬编码 |
 
-G2 与 G4 是**模板级回归门**：它们失败说明模板本身有问题，而不是使用者操作错误。
+G2 / G4 / G5 是**模板级回归门**：它们失败说明模板本身有问题，而不是使用者操作错误。
+G1 属于环境问题，`ENV_SETUP=auto` 时允许 agent 自行修复一次。
 
 ---
 
@@ -418,8 +558,10 @@ git commit -m "import template TEMPLATE_REF"
 | `git rev-parse <tag>^{commit}` 报 `unknown revision` | `--depth 1` 浅克隆未取到 tag ref | 改用 `{{TEMPLATE_COMMIT}}` 比对 HEAD |
 | `push` 报 `Repository not found` | 远端为空但 URL/账号不符 | 核对 URL 与凭据，勿 force |
 | `push` 报 `fetch first` | 远端已有提交 | 让用户重建空仓库 |
-| 特征列数与预期不符 | 依赖版本与模板记录不一致 | 按阶段 0 的判据排查，勿降级 |
+| 特征列数与预期不符 | 依赖版本与模板记录不一致 | 按阶段 0 判据核对版本；ENV_SETUP=auto 时重装钉版 |
 | `data/raw` 缺字段 | 数据不是该契约的产物 | 停止；看 `01_pipeline_contract.md` |
+| `pip install` 报找不到版本 | 钉版在 PyPI 上不存在或 Python 版本不匹配 | 停止报告，附完整报错；勿改成不带版本的安装 |
+| `winget` 不可用 | Win10 < 1809 或离线 | 停止，让用户用 python.org 安装包 |
 
 ---
 
@@ -427,12 +569,13 @@ git commit -m "import template TEMPLATE_REF"
 
 改了模板（`pipeline/`、`tools/`、`configs/default.yaml`、文档生成逻辑）之后，用本文跑一遍即可确认没有回归。
 
-**回归 = 同一套阶段 0–7 + 一个一次性谱系 + 三条额外检查。** 不需要另写一套流程。
+**回归 = 同一套阶段 0–7 + `MODE=regression` + 一个一次性谱系。** 不需要另写一套流程。
 
 ### 8.1 一次性谱系的约定
 
 | 项 | 取值 |
 | :--- | :--- |
+| `MODE` | `regression`（触发阶段 6.5 的 capsule 检查） |
 | `BASE_VERSION` | `smokecheck`（或 `regression_<日期>`） |
 | `TARGET_DIR` | 模板仓库**之外**的新目录 |
 | `PUSH` | `no` |
@@ -440,27 +583,19 @@ git commit -m "import template TEMPLATE_REF"
 
 跑完即删除 `TARGET_DIR`，不要把它当真实谱系保留。
 
-### 8.2 三条额外检查（阶段 0–7 之外）
+### 8.2 各阶段已内置的检查
 
-| # | 检查 | 命令 | 期望 |
+设 `MODE=regression` 后，提示词会自动执行下列检查，**不需要你额外操作**：
+
+| # | 检查 | 内置位置 | 期望 |
 | :---: | :--- | :--- | :--- |
-| R1 | 生成配置是**完整快照** | `(Get-Content configs/<bv>/<vs>/<bv>_<label>.yaml).Count` | > 100 行，且含 `manual_features` 段 |
-| R2 | 日历开关显式关闭 | `Select-String -Path configs/<bv>/<vs>/*.yaml -Pattern 'include_date|include_year|include_month'` | 三项均为 `false` |
-| R3 | **capsule 不含硬编码解释器**（阶段 5 的 smoke 覆盖不到） | 见下 | 命令以 `python ` 开头，无绝对路径 |
-
-R3 的做法：临时把 `tools/frozen_experiments.yaml` 的 `base_version` 与 `experiments` 填成刚跑出的实验，
-执行 `python tools/export_replay_capsule.py <experiment_version>`，然后检查生成的 md：
-
-```powershell
-Select-String -Path design/**/*.md -Pattern 'anaconda|C:/|C:\\|/usr/bin'
-```
-
-期望 **0 命中**（除 `data_prerequisites` 里合法的相对路径）。
-检查完把 `frozen_experiments.yaml` 还原为空。
+| R1 | 生成配置是**完整快照** | 阶段 4 / G2 | > 100 行，且含 `manual_features` 段 |
+| R2 | 日历开关显式关闭 | 阶段 4 / G2 | 三项均为 `false` |
+| R3 | **capsule 不含硬编码** | 阶段 6.5 / G5 | 无 `anaconda` / `factor311` / `C:/ProgramData`；命令以 `python ` 开头 |
 
 > R3 为什么必要：`smoke` 只走 step1–6，不经过 capsule / prune 工具。
 > 这两个工具曾经写死过本机解释器路径，导致 capsule 在别的机器上无法回放。
-> R3 同时验证 metadata 查找是否覆盖 `<base_version>/<version_subdir>/<run_id>` 三段式路径。
+> R3 同时验证 metadata 查找覆盖 `<base_version>/<version_subdir>/<run_id>` 三段式路径。
 
 ### 8.3 一次通过的产物长这样
 
@@ -499,6 +634,7 @@ Select-String -Path design/**/*.md -Pattern 'anaconda|C:/|C:\\|/usr/bin'
 | v1.0.5 | 修正 `.gitignore`：`data/raw/*` 原先未被忽略，`git add -A` 会提交数百 MB 原始数据；阶段 7 改为显式提交 `outputs/experiment_registry.json` |
 | v1.0.6 | 新增 §8 用作模板回归（含 capsule 检查 R3，覆盖 smoke 盲区）；`_closeout_common` 去掉硬编码解释器与 PowerShell 围栏 |
 | v1.0.7 | 修正 `metadata_dir()`：原先只认 `outputs/<base_version>/<run_id>/` 两段式，未覆盖 `version_subdir` 引入的 `outputs/<base_version>/<version_subdir>/<run_id>/` 三段式，导致 R3 在首次回归时直接失败 |
-| v1.0.8 | 阶段 0 依赖清单 6 项 → 11 项（补 scipy / sklearn / matplotlib / psutil / markdown）；新增 §4.2 解释器发现顺序（conda / py launcher / 注册表 / PATH）、§4.3 无解释器时的安装指引；明确"环境准备由用户做、环境探测由 agent 做"的角色区分；§4.4 平台声明改为准确表述 |
+| v1.0.8 | 阶段 0 依赖清单 6 项 → 11 项（补 scipy / sklearn / matplotlib / psutil / markdown）；新增 §4.2 解释器发现顺序、§4.3 安装指引；§4.4 平台声明改为准确表述 |
+| v1.0.9 | 提示词自包含：探测脚本内联进阶段 0，不再要求 agent 另查 §4.2；新增 `{{MODE}}`（first-run / regression）与**阶段 6.5 capsule 检查**，使 R3 随提示词自动执行；新增 `{{ENV_SETUP}}`（auto / forbidden），auto 时允许建 venv 装**钉版依赖集**；修正交付格式中的"六项依赖"→ 11 项；自检门扩为 G1–G5 |
 
 > 本文与 `12_clone_and_start.md` 描述同一条路径，但读者不同：前者面向 agent（指令式），后者面向人（解释式）。两者内容若冲突，以本文的阶段划分与判据为准。

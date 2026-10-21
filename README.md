@@ -15,11 +15,16 @@
 把下面这段交给它即可：
 
 > 按 `docs/13_agent_bootstrap_prompt.md` 执行。
-> 参数：TEMPLATE_REF=`v1.0.3`，TARGET_DIR=`<绝对路径>`，
-> BASE_VERSION=`<样本族名>`，VERSION_SUBDIR=`v0`，LABEL=`baseline`，
-> DATA_DIR=`<原始数据目录>`，SMOKE_N=`500`，PUSH=`no`
+> 参数：TEMPLATE_REF=`v1.0.9`，TEMPLATE_COMMIT=`<对应 commit>`，
+> TARGET_DIR=`<绝对路径>`，BASE_VERSION=`<样本族名>`，VERSION_SUBDIR=`v0`，
+> LABEL=`baseline`，DATA_DIR=`<原始数据目录>`，SMOKE_N=`500`，
+> PUSH=`no`，MODE=`regression`，ENV_SETUP=`auto`
 >
 > 若有未填项，先向我追问，不要自行假设。
+
+- `MODE=regression` 会额外执行 capsule 可移植性检查（推荐首次验证用）。
+- `ENV_SETUP=auto` 允许 agent 在缺依赖时自建 venv 并安装**钉版依赖**；
+  若希望完全由人准备环境，改成 `forbidden`。
 
 完整的占位符说明、环境探测判据、自检门与变体见
 **`docs/13_agent_bootstrap_prompt.md`**。
