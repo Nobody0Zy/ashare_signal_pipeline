@@ -66,7 +66,14 @@ def prediction_artifact_paths(paths: "Paths", mode: str) -> Dict[str, Path]:
 
 def feature_schema_artifact_path(paths: "Paths", mode: str) -> Path:
     return paths.metadata_dir / f"model_feature_schema{mode_suffix(mode)}.json"
-    
+
+
+def _resolve_raw_path(root: Path, value: str) -> Path:
+    """原始数据路径：绝对路径原样使用，相对路径相对仓库根目录。"""
+    raw = Path(str(value).strip())
+    return raw if raw.is_absolute() else root / raw
+
+
 def _master_version_hash(params: "PipelineParams") -> str:
     payload = json.dumps(
         {
@@ -122,8 +129,8 @@ def build_paths(root: Path, state_file: str, params: "PipelineParams") -> Paths:
     return Paths(
         root=root,
         experiment_version=experiment_version,
-        raw_holding=root / "data" / "raw" / "holding_stats_all.parquet",
-        raw_datebar=root / "data" / "raw" / "dateBar.pkl",
+        raw_holding=_resolve_raw_path(root, params.data.holding_file),
+        raw_datebar=_resolve_raw_path(root, params.data.datebar_file),
         processed_dir=root / "data" / "processed" / experiment_version,
         slices_dir=root / "data" / "slices" / experiment_version,
         ts_features_dir=root / "data" / "ts_features" / experiment_version,
@@ -145,6 +152,28 @@ def build_paths(root: Path, state_file: str, params: "PipelineParams") -> Paths:
     )
 
 
+def resolve_raw_data_paths(
+    root: Path,
+    params: "PipelineParams",
+    data_dir: Optional[Path] = None,
+) -> Dict[str, Path]:
+    """解析 holding / datebar 的实际路径。
+
+    `data_dir` 为空时使用配置中的路径（相对仓库根或绝对路径）；
+    传入 `data_dir` 时只取配置里的文件名，落到该外部目录。
+    """
+    if data_dir is None:
+        return {
+            "holding": _resolve_raw_path(root, params.data.holding_file),
+            "datebar": _resolve_raw_path(root, params.data.datebar_file),
+        }
+    base = Path(data_dir)
+    return {
+        "holding": base / Path(params.data.holding_file).name,
+        "datebar": base / Path(params.data.datebar_file).name,
+    }
+
+
 def ensure_directories(paths: Paths) -> None:
     for directory in (
         paths.processed_dir,
@@ -161,6 +190,18 @@ def ensure_directories(paths: Paths) -> None:
         paths.state_file.parent,
     ):
         directory.mkdir(parents=True, exist_ok=True)
+
+
+@dataclass
+class RawDataParams:
+    """原始输入文件位置；相对仓库根目录，也可写绝对路径。
+
+    新建谱系时如数据命名或落点不同，只改这里，不要改内核代码。
+    文件缺失不阻塞脚手架与配置生成，只阻塞 step1 起的实际运行。
+    """
+
+    holding_file: str = "data/raw/holding_stats_all.parquet"
+    datebar_file: str = "data/raw/dateBar.pkl"
 
 
 @dataclass
@@ -357,6 +398,7 @@ class EvalParams:
 class PipelineParams:
     seed: int = 42
     smoke_size: int = 5000
+    data: RawDataParams = field(default_factory=RawDataParams)
     window: WindowParams = field(default_factory=WindowParams)
     sample_filter: SampleFilterParams = field(default_factory=SampleFilterParams)
     tsfresh: TsfreshParams = field(default_factory=TsfreshParams)
@@ -373,6 +415,7 @@ class PipelineParams:
     @classmethod
     def from_dict(cls, raw: Dict[str, object]) -> "PipelineParams":
         nested: Dict[str, Type[object]] = {
+            "data": RawDataParams,
             "window": WindowParams,
             "sample_filter": SampleFilterParams,
             "tsfresh": TsfreshParams,
@@ -429,6 +472,8 @@ class PipelineParams:
     def version_payload(self) -> Dict[str, object]:
         payload = asdict(self)
         payload.pop("experiment", None)
+        # 原始数据位置属于环境事实，不参与版本哈希；其取值记录在 resolved_params.yaml
+        payload.pop("data", None)
         tsfresh_payload = payload.get("tsfresh")
         if isinstance(tsfresh_payload, dict):
             tsfresh_payload.pop("master_library_role", None)
@@ -466,6 +511,7 @@ class PipelineParams:
 def _validate_params(kwargs: Dict[str, object]) -> None:
     """V4.1 新增：参数合法性校验，在 YAML 加载阶段即报错。"""
     window = kwargs.get("window")
+    data = kwargs.get("data")
     time_split = kwargs.get("time_split")
     tsfresh = kwargs.get("tsfresh")
     monitoring = kwargs.get("monitoring")
@@ -477,6 +523,11 @@ def _validate_params(kwargs: Dict[str, object]) -> None:
             raise ValueError(
                 f"buffer_trading_days ({time_split.buffer_trading_days}) 必须 >= lookback_days ({window.lookback_days})"
             )
+
+    if isinstance(data, RawDataParams):
+        for field_name in ("holding_file", "datebar_file"):
+            if not str(getattr(data, field_name)).strip():
+                raise ValueError(f"data.{field_name} 不能为空")
 
     if isinstance(tsfresh, TsfreshParams):
         valid_fc_profiles = {"compact", "medium", "broad", "full"}

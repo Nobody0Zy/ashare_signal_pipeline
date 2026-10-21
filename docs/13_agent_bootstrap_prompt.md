@@ -33,7 +33,7 @@
 | `{{BASE_VERSION}}` | 样本族名 | `lowvol` | 输出目录与注册表全错 |
 | `{{VERSION_SUBDIR}}` | 族内版本目录 | `v0` | 与既有版本混叠 |
 | `{{LABEL}}` | 配置差异标签 | `baseline` | 多配置互相覆盖 |
-| `{{DATA_DIR}}` | 原始数据所在目录 | `D:\raw\lowvol` | 数据契约校验失败 |
+| `{{DATA_DIR}}` | 原始数据所在目录；**可留空** | `D:\raw\lowvol` 或留空 | 留空=无数据模式（跳过 smoke） |
 | `{{SMOKE_N}}` | 冒烟样本量 | `500` | 过小无意义、过大耗时长 |
 | `{{PUSH}}` | 是否推送远端 | `no` / `yes` | 误推到模板仓库 |
 | `{{REMOTE_URL}}` | 新远端地址（`PUSH=yes` 时必填） | `https://github.com/<you>/<repo>.git` | 推错位置 |
@@ -69,30 +69,54 @@
 
 > 只做验证就用第一种；要开长期谱系用第二种。混用会踩 `origin` 指向的坑。
 
-### 2.3 数据前提（不可省略）
+### 2.3 数据前提（可选启动条件，但跑 smoke 必需）
 
 **模板不包含任何样本数据。** 仓库里 `data/raw/` 只有一个 `.gitkeep`，
 真实数据被 `.gitignore` 排除（`data/raw/*`），因此 `git clone` 拿不到。
 
-| 项 | 值 |
+数据**不是建谱系的前置条件**：没有数据也能完成 clone → scaffold → 配置快照 → 提交，
+只是不能跑 step1~step6。要不要在本轮跑 smoke，由 `{{DATA_DIR}}` 是否填写决定。
+
+**文件名与落点不写死在代码里**，由配置的 `data` 段决定：
+
+```yaml
+data:
+  holding_file: data/raw/holding_stats_all.parquet   # 相对仓库根，或绝对路径
+  datebar_file: data/raw/dateBar.pkl
+```
+
+新谱系的数据命名不同时，只改这两行；不要改内核代码。
+
+| 项 | 默认约定（可改） |
 | :--- | :--- |
-| 必需文件 | `data/raw/holding_stats_all.parquet`、`data/raw/dateBar.pkl` |
+| holding 文件 | `data/raw/holding_stats_all.parquet` |
+| datebar 文件 | `data/raw/dateBar.pkl` |
 | 参考体积 | 约 549 MB（parquet 14 MB + pkl 534 MB） |
 | 来源 | 由使用者提供（U 盘、网络共享、内部数据平台等） |
 | 是否随模板分发 | **否** |
 
-`{{DATA_DIR}}` **不能留空**。阶段 3（数据契约）与阶段 5（smoke）都要读真实文件；
-没有数据时，只能验证克隆与 scaffold，无法验证管道是否真能跑。
+**就绪检查**（在阶段 3 使用）：
 
-若暂时没有数据，可选做法：
+```powershell
+python tools/check_raw_data.py --config <配置路径> --data-dir <外部目录> --check-columns
+```
 
-| 方案 | 覆盖 | 说明 |
+| 退出码 | 含义 | 后续动作 |
+| :---: | :--- | :--- |
+| `0` | 就绪 | 可以跑 step1~step6 |
+| `2` | 数据缺失 | **无数据模式**：继续 scaffold 与提交，跳过阶段 5/6/6.5 |
+| `3` | 文件存在但不可读或缺列，或 `--data-dir` 指向不存在的目录 | 停止报告；先修数据或改 `data.*`，不要伪造 |
+
+三种数据供给方式：
+
+| 方式 | 覆盖 | 说明 |
 | :--- | :--- | :--- |
-| 拷贝真实数据 | 100% | 推荐；549 MB 可用 U 盘或共享目录 |
-| 仅结构验证 | ~55% | 跳过阶段 3/5/6/6.5，只验克隆、scaffold、配置快照、日历开关 |
+| 拷入 `data/raw/`（保持默认命名） | 100% | 推荐；549 MB 可用 U 盘或共享目录 |
+| 外部目录 + `--data-dir` | 100% | 不复制文件；校验时只取配置里的文件名 |
+| 本轮无数据 | ~55% | 只验克隆、scaffold、配置快照、日历开关；提交时注明「无数据模式」 |
 
-> 拿到数据后，先跑 `pipeline/adapters/sample_family.py --show-contract` 确认列结构，
-> 再放进 `data/raw/`。缺列时不要硬跑——阶段 3 会中止。
+> 数据命名与默认不同时，把 `data.*` 改指向真实文件，再用新配置重跑一次
+> `check_raw_data.py --config <新配置>`，确认 `status=ready` 后再跑 smoke。
 
 命名规则（`BASE_VERSION`）：
 
@@ -106,7 +130,10 @@
 
 ```text
 【任务】
-从模板仓库克隆出一个新的样本族仓库，跑通 step1~step6 的 smoke，并完成防泄漏校验。
+从模板仓库克隆出一个新的样本族仓库。
+- DATA_DIR 已填写：跑通 step1~step6 的 smoke，并完成防泄漏校验。
+- DATA_DIR 为空：进入**无数据模式**，完成克隆、scaffold、配置快照与提交，
+  跳过阶段 5 / 6 / 6.5，并在结论中标注「无数据模式，未验证管道可运行」。
 本任务只做 smoke，不做 full。
 
 【已确认参数】
@@ -118,7 +145,7 @@ TARGET_DIR     = {{TARGET_DIR}}
 BASE_VERSION   = {{BASE_VERSION}}
 VERSION_SUBDIR = {{VERSION_SUBDIR}}
 LABEL          = {{LABEL}}
-DATA_DIR       = {{DATA_DIR}}
+DATA_DIR       = {{DATA_DIR}}          # 可留空：留空 = 无数据模式
 SMOKE_N        = {{SMOKE_N}}
 PUSH           = {{PUSH}}
 REMOTE_URL     = {{REMOTE_URL}}
@@ -237,18 +264,22 @@ ENV_SETUP      = {{ENV_SETUP}}     # auto | forbidden
   3. 建立 design/BASE_VERSION/VERSION_SUBDIR/CONTEXT.md，记录：
        fork 自、fork 日期、样本族、数据来源、本轮目标、是否修改内核
 
-【阶段 3 · 数据契约】
-  前置检查（任一不满足则停止报告，不要跳过本阶段继续）：
-    - DATA_DIR 已填写，且目录存在
-    - DATA_DIR\holding_stats_all.parquet 存在
-    - DATA_DIR\dateBar.pkl 存在
-  缺数据时报告："DATA_DIR 未提供或缺少必要文件，无法执行数据契约与 smoke"，
-  不要用空文件、伪造数据或跳过阶段 5 的方式绕过。
+【阶段 3 · 数据契约（可跳过）】
+  数据是可选启动条件。先做一次就绪检查，不要用空文件或伪造数据绕过：
 
-  <PYTHON> pipeline/adapters/sample_family.py --show-contract
-  把 DATA_DIR 下的 holding_stats_all.parquet 与 dateBar.pkl 复制到 data/raw/
-  校验两文件都存在，且字段覆盖契约要求的列。
-  缺字段时停止报告，不要自行补造数据。
+  # DATA_DIR 非空时检查外部目录；为空时去掉 --data-dir 参数（检查 data/raw/）
+  <PYTHON> tools/check_raw_data.py --data-dir DATA_DIR --check-columns
+  # 若该族用了非默认文件名，阶段 4 生成配置后再补跑：
+  #   <PYTHON> tools/check_raw_data.py --config <生成的配置> --check-columns
+
+  按退出码处理：
+    0 = 就绪                       → 复制 DATA_DIR 下两个文件到 data/raw/（若用了外部目录），继续阶段 4
+    2 = 数据缺失                    → 进入无数据模式：继续阶段 4 与阶段 7，跳过阶段 5/6/6.5，
+                                      提交说明与本轮结论都必须写明「无数据模式」
+    3 = 存在但不可读/缺列，或 DATA_DIR 指向不存在的目录 → 停止报告，不要自行补造数据
+
+  约定：本阶段不因「没有数据」而中止；只有「数据存在但契约不符」才是阻塞。
+  需要列名清单时：<PYTHON> pipeline/adapters/sample_family.py --show-contract
 
 【阶段 4 · 生成谱系入口】
   python tools/scaffold_experiment_line.py BASE_VERSION \
@@ -258,8 +289,12 @@ ENV_SETUP      = {{ENV_SETUP}}     # auto | forbidden
     a. 生成的 YAML 是完整配置快照（含 manual_features 等段），不是几行 stub
     b. include_date / include_year / include_month 三项均为 false
     c. configs/experiment_index.yaml 仍是合法 YAML，且包含本条注册
+    d. YAML 含 data 段（holding_file / datebar_file）；有数据时指向本族真实文件，无数据模式保留默认约定即可
 
 【阶段 5 · 跑 smoke】
+  前置：阶段 3 的检查结果为 0（就绪）。若为 2（数据缺失），跳过阶段 5/6/6.5，
+  直接到阶段 7，并在结论中写明「无数据模式」。
+
   同一配置、同一模式，step1~step6 必须共用同一个 state-file。
   
   $cfg = "configs/BASE_VERSION/VERSION_SUBDIR/BASE_VERSION_LABEL.yaml"
@@ -310,8 +345,10 @@ ENV_SETUP      = {{ENV_SETUP}}     # auto | forbidden
   注意：本阶段会临时修改 frozen_experiments.yaml，必须确保还原成功后再继续。
 
 【阶段 7 · 提交】
-  git add configs design outputs/experiment_registry.json
-  git commit
+  git add configs design
+  # 无数据模式没有输出登记文件，缺失时跳过而不是报错
+  if (Test-Path outputs/experiment_registry.json) { git add outputs/experiment_registry.json }
+  git commit -m "start BASE_VERSION/VERSION_SUBDIR LABEL (smoke|no-data)"
   
   校验：
     - 提交作者为你设置的身份
@@ -361,9 +398,9 @@ ENV_SETUP      = {{ENV_SETUP}}     # auto | forbidden
 出现以下任一情况，立即停止并报告（阶段编号 / 完整命令 / 完整 stderr / 已尝试动作 / 建议）：
 - 阶段 0 任一探测项不满足（ENV_SETUP=forbidden 时）
 - ENV_SETUP=auto 时安装失败，或装完后 11 项仍不全
-- DATA_DIR 为空、目录不存在，或缺少 holding_stats_all.parquet / dateBar.pkl
+- check_raw_data.py 退出码 3（数据存在但不可读或缺列）
+- DATA_DIR 非空但目录不存在（空值属正常，走无数据模式）
 - 克隆失败或 HEAD 与 TEMPLATE_COMMIT 不符
-- 数据契约缺字段
 - 生成配置中日历开关不为 false
 - 任一 smoke 步骤失败
 - calendar_gain_share != 0
@@ -377,20 +414,21 @@ ENV_SETUP      = {{ENV_SETUP}}     # auto | forbidden
    若执行了安装：说明原因、venv 路径、安装命令
 二、克隆结果（目录、HEAD、tags、文件数）
 三、本地化（身份、base_version、CONTEXT 摘要）
-四、数据契约（文件清单、契约摘要）
-五、scaffold（生成文件、配置行数、三项日历开关原文、index 条目）
-六、smoke（逐步 exit code、耗时、checks 摘要）
-七、产物与防泄漏（输出目录、文件清单、六步状态、calendar_gain_share）
-八、capsule 检查（仅 MODE=regression：断言 A/B/C 结果；first-run 写"已跳过"）
+四、数据状态（check_raw_data.py 退出码与结论：ready / missing / invalid）
+    missing 时写明「无数据模式，本轮不验证管道可运行」
+五、scaffold（生成文件、配置行数、三项日历开关原文、data 段、index 条目）
+六、smoke（逐步 exit code、耗时、checks 摘要；无数据模式写"已跳过"）
+七、产物与防泄漏（输出目录、文件清单、六步状态、calendar_gain_share；无数据模式写"已跳过"）
+八、capsule 检查（仅 MODE=regression：断言 A/B/C 结果；first-run 或无数据模式写"已跳过"）
 九、提交（commit、作者、status、是否推送）
 十、结论（逐条打勾）
    [ ] 环境 11 项依赖齐全（钉版）
-   [ ] 未改内核即跑通
-   [ ] 配置为完整快照且日历开关全 false
-   [ ] 六步 smoke 全通过
-   [ ] calendar_gain_share = 0.0
+   [ ] 未改内核即跑通（或已标注无数据模式、未验证）
+   [ ] 配置为完整快照、含 data 段且日历开关全 false
+   [ ] 六步 smoke 全通过（无数据模式不勾选）
+   [ ] calendar_gain_share = 0.0（无数据模式不勾选）
    [ ] 未改 data/raw、未用 full
-   [ ] MODE=regression 时 capsule 检查通过
+   [ ] MODE=regression 时 capsule 检查通过（无数据模式不勾选）
 十一、未完成项
 ```
 
@@ -632,6 +670,8 @@ git commit -m "import template TEMPLATE_REF"
 | `push` 报 `fetch first` | 远端已有提交 | 让用户重建空仓库 |
 | 特征列数与预期不符 | 依赖版本与模板记录不一致 | 按阶段 0 判据核对版本；ENV_SETUP=auto 时重装钉版 |
 | `data/raw` 缺字段 | 数据不是该契约的产物 | 停止；看 `01_pipeline_contract.md` |
+| `check_raw_data.py` 退出码 2 | 数据还没放到位 | 无数据模式可继续 scaffold；跑 smoke 前补数据 |
+| `check_raw_data.py` 退出码 3 | 文件不可读、缺列，或 `--data-dir` 不存在 | 修数据或改 `data.*`；勿硬跑 |
 | `pip install` 报找不到版本 | 钉版在 PyPI 上不存在或 Python 版本不匹配 | 停止报告，附完整报错；勿改成不带版本的安装 |
 | `winget` 不可用 | Win10 < 1809 或离线 | 停止，让用户用 python.org 安装包 |
 
@@ -710,5 +750,6 @@ git commit -m "import template TEMPLATE_REF"
 | v1.0.9 | 提示词自包含：探测脚本内联进阶段 0，不再要求 agent 另查 §4.2；新增 `{{MODE}}`（first-run / regression）与**阶段 6.5 capsule 检查**，使 R3 随提示词自动执行；新增 `{{ENV_SETUP}}`（auto / forbidden），auto 时允许建 venv 装**钉版依赖集**；修正交付格式中的"六项依赖"→ 11 项；自检门扩为 G1–G5 |
 | v1.0.10 | 修正 `PUSH=yes` 的 remote 处理：直连 clone 后 `origin` 已指向模板，`remote add` 会报错且存在把谱系推到模板的风险；改为 `set-url` 并新增 **push 前安全守卫**（`origin == TEMPLATE_URL` 时禁止 push）。新增 §2.2「验证 vs 开谱系：先选对获取方式」，并在阶段 1 标注本提示词使用直连 clone 的理由 |
 | v1.0.11 | 新增 §2.3「数据前提」：明确模板不含样本数据、`{{DATA_DIR}}` 不能留空、参考体积与两种降级方案；阶段 3 增加前置检查（缺文件即停止），阻塞清单同步；README 与 docs/12 §5.1 补充「数据不随模板分发」 |
+| v1.0.12 | 数据契约改为**可选启动条件**：`{{DATA_DIR}}` 可留空 → 无数据模式（跳过阶段 5/6/6.5，仍完成 scaffold 与提交）；新增 `data.holding_file` / `data.datebar_file` 配置项，不再把文件名写死在代码里；新增 `tools/check_raw_data.py`，用退出码 0/2/3 区分就绪、缺失、契约不符；阶段 3/4/5、阻塞清单、交付格式与结论清单同步；`data` 段不参与版本哈希 |
 
 > 本文与 `12_clone_and_start.md` 描述同一条路径，但读者不同：前者面向 agent（指令式），后者面向人（解释式）。两者内容若冲突，以本文的阶段划分与判据为准。

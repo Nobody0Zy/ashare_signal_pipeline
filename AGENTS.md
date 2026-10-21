@@ -2,7 +2,9 @@
 
 ## 1. 这是什么
 
-这是一个可复用的 A 股信号实验内核；开一个新实验的标准路径是：克隆仓库、准备 `data/raw/`、为新的 `base_version` 建入口，然后按 step1~step6 逐步运行。
+这是一个可复用的 A 股信号实验内核；开一个新实验的标准路径是：克隆仓库、为新的 `base_version` 建入口，然后按 step1~step6 逐步运行。
+
+原始数据不是启动前置条件：默认从 `data/raw/` 读取，路径由配置 `data.holding_file` / `data.datebar_file` 决定（可用相对或绝对路径）。没有数据也能先 scaffold 与提交，只是 step1~step6 无法运行；就绪与否用 `python tools/check_raw_data.py --config <配置>` 判定（0=就绪，2=缺失，3=契约不符）。
 
 它负责的是稳定机制，而不是单次实验结论：
 
@@ -25,7 +27,7 @@
 | `tools/` | 收尾、脚手架、分析与回放辅助工具 | 可改 |
 | `configs/` | 默认参数、实验注册表、bagging 模板与各谱系 YAML | 可改 |
 | `docs/` | 跨谱系可复用知识、SOP、架构说明、模板文档 | 可改 |
-| `data/raw/` | 样本族输入数据入口（持仓样本与日线原始文件） | 只读 |
+| `data/raw/` | 样本族输入数据入口（持仓样本与日线原始文件；也可由配置指向别处） | 只读 |
 | `outputs/` | 实验输出、报告、manifest 与运行登记 | 可改 |
 
 补充约定：
@@ -73,7 +75,7 @@
 
 1. `data/raw/` 只读，任何情况下不得修改或删除。
 2. 严禁破坏性清理（不得删除 `outputs/`、`data/` 目录作为重置手段）。
-3. 每条验证路径使用独立 `state-file`；共享中间产物的验证必须串行。
+3. 每条验证路径使用独立 `state-file`；同一次运行的 step1~step6 共用同一个 `state-file`；共享中间产物的验证必须串行。
 4. 单步 CLI：`--mode {smoke,full} --step {1..6} --config <path> --state-file <name>`。
 5. 严禁使用 `reset_index(drop=True)` 修改 `sample_id`。
 6. 内核改动必须回灌 `ashare_signal_pipeline`，不在谱系仓库内直接改。

@@ -4,7 +4,7 @@
 
 仓库关注的是可迁移机制，而不是某一轮历史实验本身：
 
-- 输入契约固定在 `data/raw/`
+- 输入契约可配置，默认落在 `data/raw/`（`data.holding_file` / `data.datebar_file`）
 - 执行内核集中在 `pipeline/`
 - 配置与注册集中在 `configs/`
 - 跨谱系知识集中在 `docs/`
@@ -15,9 +15,9 @@
 把下面这段交给它即可：
 
 > 按 `docs/13_agent_bootstrap_prompt.md` 执行。
-> 参数：TEMPLATE_REF=`v1.0.9`，TEMPLATE_COMMIT=`<对应 commit>`，
+> 参数：TEMPLATE_REF=`v1.0.12`，TEMPLATE_COMMIT=`<对应 commit>`，
 > TARGET_DIR=`<绝对路径>`，BASE_VERSION=`<样本族名>`，VERSION_SUBDIR=`v0`，
-> LABEL=`baseline`，DATA_DIR=`<原始数据目录>`，SMOKE_N=`500`，
+> LABEL=`baseline`，DATA_DIR=`<原始数据目录；留空=无数据模式>`，SMOKE_N=`500`，
 > PUSH=`no`，MODE=`regression`，ENV_SETUP=`auto`
 >
 > 若有未填项，先向我追问，不要自行假设。
@@ -36,12 +36,15 @@
 
 1. 克隆并命名  
    `git clone <url> <base_version>`（目录名即样本族名，如 `lowvol`、`boll`）。
-2. 放数据  
-   把 `holding_stats_all.parquet` 与 `dateBar.pkl` 放到 `data/raw/`。
+2. 放数据（可选）  
+   默认约定把 `holding_stats_all.parquet` 与 `dateBar.pkl` 放到 `data/raw/`；
+   命名不同时改配置的 `data.*`。没有数据也能先完成第 3 步，只是暂时跑不了 smoke。
+   就绪检查：`python tools/check_raw_data.py --config <配置> --check-columns`
 3. 建谱系  
    运行 `python tools/scaffold_experiment_line.py <base_version> --version-subdir v0 --label baseline`。
 4. 做 smoke  
-   按 step1~step6 分步运行 `python run_experiment_pipeline.py --mode smoke --smoke 5000 --step <n> --config <path> --state-file <name>`，每步用独立 `state-file`。
+   按 step1~step6 分步运行 `python run_experiment_pipeline.py --mode smoke --smoke 5000 --step <n> --config <path> --state-file <name>`；
+   同一次运行的六步必须共用同一个 `state-file`，不同验证路径之间再各自分开。
 
 ## 目录结构
 
@@ -76,14 +79,16 @@ ashare_signal_pipeline/
   `numpy` `pandas` `pyarrow` `PyYAML` `tsfresh` `lightgbm`
   `scipy` `scikit-learn` `matplotlib` `psutil` `markdown`
 - 能读取 `parquet` / `pickle` 数据文件
-- **原始数据需自行提供**：`data/raw/holding_stats_all.parquet` 与 `data/raw/dateBar.pkl`
-  （参考体积约 549 MB）
+- **原始数据需自行提供（可选，跑 smoke 前必须就绪）**：
+  默认位置 `data/raw/holding_stats_all.parquet` 与 `data/raw/dateBar.pkl`（参考体积约 549 MB）；
+  命名不同时改配置的 `data.holding_file` / `data.datebar_file`，不要改内核代码。
 
 > 环境准备由使用者完成；agent 只负责探测与执行。解释器发现顺序见
 > `docs/13_agent_bootstrap_prompt.md` §4.2。
 
 > **模板不含样本数据。** `data/raw/` 只有 `.gitkeep`，真实数据被 `.gitignore` 排除，
-> `git clone` 不会带来数据。数据获取方式与前置检查见 `docs/13` §2.3。
+> `git clone` 不会带来数据。没有数据也能先建谱系，只是不能跑 step1~step6。
+> 就绪判定见 `docs/13` §2.3 与 `tools/check_raw_data.py`（退出码 0/2/3）。
 
 ## 使用提醒
 

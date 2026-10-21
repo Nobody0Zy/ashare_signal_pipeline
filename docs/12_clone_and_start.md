@@ -129,26 +129,41 @@ New-Item -ItemType Directory -Path design\<base_version>\<version_subdir> -Force
 
 ## 5. 最小可运行路径
 
-### 5.1 放入原始数据
+### 5.1 放入原始数据（可选，但跑 smoke 必需）
 
 **模板不含样本数据。** `data/raw/` 出厂只有 `.gitkeep`，真实数据被 `.gitignore` 排除，
 `git clone` 不会带来数据，必须自行提供。
 
-| 文件 | 位置 | 说明 |
+数据**不是建谱系的前置条件**：没有数据也能完成克隆、scaffold 与提交，只是不能跑 step1~step6。
+文件名与落点由配置的 `data` 段决定，不写死在代码里：
+
+```yaml
+data:
+  holding_file: data/raw/holding_stats_all.parquet   # 相对仓库根，或绝对路径
+  datebar_file: data/raw/dateBar.pkl
+```
+
+| 文件 | 默认位置 | 说明 |
 | :--- | :--- | :--- |
 | `holding_stats_all.parquet` | `data/raw/` | 已平仓交易样本（约 14 MB） |
 | `dateBar.pkl` | `data/raw/` | 后复权日线（约 534 MB） |
 
-没有数据时无法执行阶段 3、5、6，只能验证克隆与 scaffold。
-数据获取方式见 `docs/13_agent_bootstrap_prompt.md` §2.3。
+命名不同也能用：改 `data.*` 两行即可，不要改内核代码。
 
-先确认契约：
+先确认就绪：
 
 ```powershell
-python pipeline/adapters/sample_family.py --show-contract
+python tools/check_raw_data.py --config <配置路径> --check-columns
 ```
 
-输出会列出 `holding` 需要的 6 个字段与 `datebar` 需要的 9 个字段。缺字段时不要硬跑，先补数据。
+| 退出码 | 含义 | 动作 |
+| :---: | :--- | :--- |
+| `0` | 就绪 | 可以跑 step1~step6 |
+| `2` | 数据缺失 | 继续 scaffold 与提交；跑 smoke 前补数据 |
+| `3` | 存在但不可读或缺列 | 先修数据，不要硬跑 |
+
+字段契约可单独查看：`python pipeline/adapters/sample_family.py --show-contract`
+（`holding` 6 个字段、`datebar` 9 个字段）。
 
 ### 5.2 生成谱系入口
 

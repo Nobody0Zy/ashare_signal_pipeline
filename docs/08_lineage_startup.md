@@ -16,9 +16,12 @@
 
 1. **确认数据契约**  
    先运行 `python pipeline/adapters/sample_family.py --show-contract`，确认 holding 与 datebar 的最小字段集。
+   再用 `python tools/check_raw_data.py --config <配置>` 检查实际文件（退出码 0/2/3 = 就绪/缺失/不符）。
 
-2. **放置原始数据**  
-   把 `data/raw/holding_stats_all.parquet` 与 `data/raw/dateBar.pkl` 放到 `data/raw/`。
+2. **放置或指向原始数据（可选）**  
+   默认约定是 `data/raw/holding_stats_all.parquet` 与 `data/raw/dateBar.pkl`；
+   命名或落点不同时改配置的 `data.holding_file` / `data.datebar_file`，不要改内核代码。
+   暂时没有数据也可以先建谱系，只是跑不了 step1~step6。
 
 3. **确定实验坐标**  
    明确样本族名 `base_version`（如 `boll`）与版本目录 `version_subdir`（如 `v0`）。
@@ -87,7 +90,7 @@
 
 ## 最小复核清单
 
-1. 数据文件已放到 `data/raw/`
+1. 数据就绪（`tools/check_raw_data.py` 退出码 0；无数据时该步骤可暂缓）
 2. scaffold 已生成 config 与 design 入口
 3. `experiment_index.yaml` 已注册
 4. smoke 的 step1~step6 计划使用独立 state-file

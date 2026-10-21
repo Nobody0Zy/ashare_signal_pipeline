@@ -89,6 +89,10 @@
 | `outputs/` / `models/` / `data/processed` / `data/slices` 等 | **不要通过删除目录来「重置环境」**；优先用新 `state-file`、新 config 或新 `experiment_version` 隔离运行 |
 | `outputs/experiment_registry.json` | 跟踪文件，运行会追加登记，应保留并按实验流程提交 |
 
+原始文件的**具体路径由配置 `data.holding_file` / `data.datebar_file` 决定**（默认指向 `data/raw/`，
+也可写绝对路径或指向外部目录）。只读约束跟随实际指向的文件，不因换路径而放宽。
+就绪判定：`python tools/check_raw_data.py --config <配置>`（0=就绪，2=缺失，3=契约不符）。
+
 ---
 
 ## 7. 模式语义
