@@ -49,6 +49,11 @@ def _file_columns(path: Path) -> list[str]:
         obj = pd.read_pickle(path)
         if not hasattr(obj, "columns"):
             raise ValueError(f"{path.name} 不是带 columns 的表格对象")
+        # 与 step1 的读取方式保持一致：idxs/idxd 可能来自索引
+        try:
+            obj = obj.reset_index()
+        except Exception:
+            pass
         return [str(column) for column in obj.columns]
     raise ValueError(f"不支持的原始数据扩展名: {path.suffix}")
 

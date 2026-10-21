@@ -751,5 +751,6 @@ git commit -m "import template TEMPLATE_REF"
 | v1.0.10 | 修正 `PUSH=yes` 的 remote 处理：直连 clone 后 `origin` 已指向模板，`remote add` 会报错且存在把谱系推到模板的风险；改为 `set-url` 并新增 **push 前安全守卫**（`origin == TEMPLATE_URL` 时禁止 push）。新增 §2.2「验证 vs 开谱系：先选对获取方式」，并在阶段 1 标注本提示词使用直连 clone 的理由 |
 | v1.0.11 | 新增 §2.3「数据前提」：明确模板不含样本数据、`{{DATA_DIR}}` 不能留空、参考体积与两种降级方案；阶段 3 增加前置检查（缺文件即停止），阻塞清单同步；README 与 docs/12 §5.1 补充「数据不随模板分发」 |
 | v1.0.12 | 数据契约改为**可选启动条件**：`{{DATA_DIR}}` 可留空 → 无数据模式（跳过阶段 5/6/6.5，仍完成 scaffold 与提交）；新增 `data.holding_file` / `data.datebar_file` 配置项，不再把文件名写死在代码里；新增 `tools/check_raw_data.py`，用退出码 0/2/3 区分就绪、缺失、契约不符；阶段 3/4/5、阻塞清单、交付格式与结论清单同步；`data` 段不参与版本哈希 |
+| v1.0.13 | 修正 `check_raw_data.py` 的 datebar 列校验：真实 `dateBar.pkl` 的 `idxs`/`idxd` 来自索引，需先 `reset_index()` 再比对（与 step1 一致），否则会误报退出码 3 |
 
 > 本文与 `12_clone_and_start.md` 描述同一条路径，但读者不同：前者面向 agent（指令式），后者面向人（解释式）。两者内容若冲突，以本文的阶段划分与判据为准。

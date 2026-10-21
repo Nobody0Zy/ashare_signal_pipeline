@@ -15,7 +15,7 @@
 把下面这段交给它即可：
 
 > 按 `docs/13_agent_bootstrap_prompt.md` 执行。
-> 参数：TEMPLATE_REF=`v1.0.12`，TEMPLATE_COMMIT=`<对应 commit>`，
+> 参数：TEMPLATE_REF=`v1.0.13`，TEMPLATE_COMMIT=`<对应 commit>`，
 > TARGET_DIR=`<绝对路径>`，BASE_VERSION=`<样本族名>`，VERSION_SUBDIR=`v0`，
 > LABEL=`baseline`，DATA_DIR=`<原始数据目录；留空=无数据模式>`，SMOKE_N=`500`，
 > PUSH=`no`，MODE=`regression`，ENV_SETUP=`auto`
