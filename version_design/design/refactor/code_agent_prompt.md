@@ -617,6 +617,7 @@ git commit -m "<type>: <subject>"
 1. `git add` 必须逐条列出白名单路径；**禁止** `git add -A`、`git add .`、`git commit -a`；
 2. 删除文件用 `git add <已删除路径>` 暂存（M5 的 `tools/verify_v11.py` 就靠这一步让 `git ls-files` 不再返回它）；
 3. 除 `git reset --hard m<k-1>-ok`（§4.2 止损）外，**禁止**任何历史改写命令：`git commit --amend`、`git rebase`、`git push --force`、`git filter-branch`。
+4. `tools/verify_v11.py` 若在本里程碑被扩展，必须一并 add；它不占白名单名额，但受「只增不改」约束。
 
 不要发明：
 

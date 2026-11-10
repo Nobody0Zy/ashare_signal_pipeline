@@ -87,6 +87,7 @@ $ver = & $py -c "from pipeline.config import load_params; print(load_params('con
 | 为什么必须提交 | A3-01（`git diff --name-only HEAD`）与 A5-01（`git ls-files`）都以 HEAD 为基准：不提交时 M3 的 diff 会带出 M0/M1/M2 的文件（判越界）；M5 删除 `verify_v11.py` 后未提交，`git ls-files` 仍返回 0（判未删除） |
 | 删除文件怎么暂存 | 用 `git add <已删除路径>` 暂存删除（等价 `git rm --cached` + 文件已删），仍然不要用 `git add -A` |
 | 台账要跟着提交 | `outputs/experiment_registry.json` 是**已跟踪**文件，而每次跑 pipeline 都会重写它。凡本里程碑运行过 pipeline 的，收尾时把它一并 `git add`；它不计入白名单越界，但必须随该里程碑提交，否则 `git status` 会留下白名单外的改动（违反结项标准第 6 条） |
+| 验收工具可以扩展，但不得放宽 | `tools/verify_v11.py` 在每个里程碑都允许**新增**该里程碑的检查入口（M0→`_run_m0_checks`，M1→`_run_m1_checks`，…），这**不计入白名单越界**，但必须随该里程碑提交；**禁止修改或删除已实现的任何 `_run_m<k>_checks` 与共享助手**（区别于新增）。机械校验：`git diff --numstat m<k-1>-ok..m<k>-ok -- tools/verify_v11.py` 的删除行数必须为 0（仅允许新增；`--milestone M<k-1>` 必须仍然 exit 0）。 |
 
 未跟踪的运行期产物（`data/**`、`outputs/**`、`models/**`、`configs/local/**`）不进入任何里程碑提交；`version_design/design/refactor/**` 中列在该里程碑白名单里的设计产物（如 `baseline_v1.0.13.json`、`datebar_probe.json`）随该里程碑一起提交。
 
@@ -380,6 +381,7 @@ git tag m0-ok
 | `pipeline/config.py` | 修改 | 新增 `InputParams` / `TargetParams` / `UniverseParams` / `SampleBuildParams` / `LabelBuildParams` / `DataPrepParams`；`PipelineParams` 加 `input` / `target` / `data_prep`；`from_dict` 的 `nested` 加三项；`version_payload` **保持**包含它们；`RawDataParams` 加 `prepared_dir` / `labels_dir`；`Paths` 加 `prepared_root_dir` / `labels_root_dir` | §5.1（1/2/4） |
 | `pipeline/step1_clean.py` | 修改 | **仅**在 `compute_step1` 顶部加 samples 模式显式拒绝；`_clean_holding` / `_clean_datebar` 一字不改 | §5.1 注 / §6.3 |
 | `configs/default.yaml` | 修改 | 追加 `input` / `target` / `data_prep` 三段（取值即默认值） | §5.2 |
+| `tools/verify_v11.py` | 修改（仅新增） | 新增 `_run_m1_checks` 与该里程碑 A1-xx 断言；不改动 M0 的检查与共享助手 | §2.3.5 |
 
 **不做什么**：不碰 `step2`–`step6`；不写标签；不生成历史窗口列；`config.py` 只做纯增量；`step1` 只多那几行拒绝。
 
@@ -428,6 +430,7 @@ if ($LASTEXITCODE -ne 0) { throw "旧路径被破坏" }
     --config configs/local/refactor_check_samples.yaml --state-file m1_samples_step1.json
 if ($LASTEXITCODE -ne 1) { throw "M1 守卫未生效：期望 exit 1" }
 
+# M1-8 先扩展 verify_v11 支持 M1（仅新增），再跑 Gate
 # M1-8 里程碑 Gate
 & $py tools/verify_v11.py --milestone M1 --baseline $base
 if ($LASTEXITCODE -ne 0) { throw "M1 验收未通过" }
@@ -460,7 +463,8 @@ if ($LASTEXITCODE -ne 0) { throw "M1 验收未通过" }
 git add data_prep/ids.py data_prep/datebar.py data_prep/universe.py data_prep/__init__.py `
     data_prep/samples data_prep/build_samples.py tools/build_samples.py `
     tests/conftest.py tests/test_data_prep pytest.ini `
-    pipeline/config.py pipeline/step1_clean.py configs/default.yaml
+    pipeline/config.py pipeline/step1_clean.py configs/default.yaml `
+    tools/verify_v11.py
 git commit -m "feat(data_prep): add samples layer with config fields and step1 guard"
 git tag m1-ok
 ```
@@ -489,6 +493,7 @@ git tag m1-ok
 | `tools/build_labels.py` | 新增 | CLI：`--config`、`--dry-run`、`--json`；遍历 registry 的定义，对每个定义用其 `params_key` 取参数（缺省回落到 `default_params`），一次 `compute` 落盘全部返回名 | §6.1 / §4.5 |
 | `tests/test_data_prep/test_labels_contract.py` | 新增 | 行契约、列契约、`is_complete` / `is_entry_blocked` 语义 | §3.2 |
 | `tests/test_data_prep/test_cache_and_registry.py` | 新增 | 缓存命中/失效、`resolve_label` 三类异常 | §7 M2 |
+| `tools/verify_v11.py` | 修改（仅新增） | 新增 `_run_m2_checks` 与该里程碑 A2-xx 断言；不改动 M0…M1 的检查与共享助手 | §2.3.5 |
 
 **不做什么**：不碰 `pipeline/`；不缩尾、不截断、不分类；不做增量补算（§3.4 缓存策略）。
 
@@ -514,6 +519,7 @@ if (Compare-Object $before $after -Property FullName,LastWriteTime) { throw "缓
 & $py -m pytest tests/test_data_prep -q
 if ($LASTEXITCODE -ne 0) { throw "单测失败" }
 
+# M2-4 先扩展 verify_v11 支持 M2（仅新增），再跑 Gate
 # M2-4 里程碑 Gate
 & $py tools/verify_v11.py --milestone M2 --baseline $base
 if ($LASTEXITCODE -ne 0) { throw "M2 验收未通过" }
@@ -540,7 +546,7 @@ if ($LASTEXITCODE -ne 0) { throw "M2 验收未通过" }
 
 ```powershell
 git add data_prep/labels data_prep/label_builder.py tools/build_labels.py `
-    tests/test_data_prep
+    tests/test_data_prep tools/verify_v11.py
 git commit -m "feat(data_prep): add labels layer with registry and cache"
 git tag m2-ok
 ```
@@ -564,6 +570,7 @@ git tag m2-ok
 | `docs/15_data_contract.md` | 新增 | samples / labels 契约、内置采样与标签清单（含 `name_pattern` 列）、扩展步骤 | §4.10 / §7 M3 |
 | `tests/test_pipeline/test_config_v11.py` | 修改/新增 | V1–V14 逐条正反用例 | §5.3 |
 | `tests/test_pipeline/test_step1_guard.py` | 修改/新增 | samples 模式在 step1 顶部被拒绝 | §7 M3③ |
+| `tools/verify_v11.py` | 修改（仅新增） | 新增 `_run_m3_checks` 与该里程碑 A3-xx 断言；不改动 M0…M2 的检查与共享助手 | §2.3.5 |
 
 ### 5.3 验收命令
 
@@ -593,6 +600,7 @@ if ($LASTEXITCODE -ne 0) { throw "契约展示失败" }
 & $py -m pytest tests -q
 if ($LASTEXITCODE -ne 0) { throw "单测失败" }
 
+# M3-6 先扩展 verify_v11 支持 M3（仅新增），再跑 Gate
 # M3-6 旧路径 smoke step1（行为未变）后跑 Gate
 & $py run_experiment_pipeline.py --mode smoke --step 1 `
     --config configs/local/refactor_check.yaml --state-file m3_old_step1.json
@@ -624,7 +632,7 @@ if ($LASTEXITCODE -ne 0) { throw "M3 验收未通过" }
 
 ```powershell
 git add pipeline/config.py pipeline/adapters/sample_family.py pipeline/step2_slices.py `
-    tools/check_raw_data.py docs/15_data_contract.md tests
+    tools/check_raw_data.py docs/15_data_contract.md tests tools/verify_v11.py
 git commit -m "feat(config): add v1.1 validation, contracts and readiness checks"
 git tag m3-ok
 ```
@@ -645,6 +653,7 @@ git tag m3-ok
 | `pipeline/runner.py` | 修改 | `_completed_step_matches_current_inputs` 扩展到 step1：比对 `input_mode` / `samples_id` / `label_hash` / `datebar_fingerprint`；旧 state 缺键 → 视为签名变化 → 重跑 | §6.3 / §7 M4 |
 | `docs/07_step_acceptance_criteria.md` | 修改 | 补 Step 1 六个 check 在 samples 模式下的语义映射（名称与判定不变） | §7 M4 |
 | `tests/test_pipeline/test_step1_dual_mode.py` | 新增 | 两模式同构、丢空标签、升序、缺标签报错、签名触发重跑 | §7 M4 |
+| `tools/verify_v11.py` | 修改（仅新增） | 新增 `_run_m4_checks` 与该里程碑 A4-xx 断言；不改动 M0…M3 的检查与共享助手 | §2.3.5 |
 
 **不做什么**：不改 step2–step6；不引入历史窗口列；不在 step5 选标签；不在 `_clean_samples` 里构建标签。
 
@@ -703,6 +712,7 @@ Pop-Location
 #   $py -c "import pandas as pd,sys; a=pd.read_parquet(sys.argv[1]); b=pd.read_parquet(sys.argv[2]); print(a.shape,b.shape); assert a.equals(b)" <主仓库文件> <worktree 文件>
 #   期望：shape 相同且 assert 不抛异常（exit 0）
 
+# M4-6 先扩展 verify_v11 支持 M4（仅新增），再跑 Gate
 # M4-6 里程碑 Gate
 & $py tools/verify_v11.py --milestone M4 --baseline $base `
     --config configs/local/refactor_check.yaml `
@@ -744,7 +754,7 @@ M4 的守恒恒等式验收**只要求 smoke 口径**；`$full_state` 分支默�
 
 ```powershell
 git add pipeline/step1_clean.py pipeline/runner.py docs/07_step_acceptance_criteria.md `
-    tests/test_pipeline/test_step1_dual_mode.py
+    tests/test_pipeline/test_step1_dual_mode.py tools/verify_v11.py
 git commit -m "feat(step1): support dual input modes and extend runner signature"
 git tag m4-ok
 ```
