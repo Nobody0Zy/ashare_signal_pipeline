@@ -524,7 +524,7 @@ invalid_reasons = {"unknown_symbol": 0, "date_not_in_symbol_range": 0,
 
 | 项 | 规定 |
 | :--- | :--- |
-| 参数 | `--milestone`、`--baseline`、`--config`（可选）、`--state-file`（可重复）、`--output-dir`（可重复）、`--report` |
+| 参数 | `--milestone`、`--baseline`、`--baseline-git-ref`（M0 必填）、`--config`（可选）、`--state-file`（可重复）、`--output-dir`（可重复）、`--report` |
 | exit | 全通过 `0`；任一失败或缺产物 `1`；参数错误 `2` |
 | 输出 | 只写 `verify_report.json` |
 | 依赖 | 只 `import` 标准库 + `pandas` / `pyarrow` |
@@ -535,8 +535,9 @@ invalid_reasons = {"unknown_symbol": 0, "date_not_in_symbol_range": 0,
 **最小验收命令**：
 
 ```powershell
-& $py tools/verify_v11.py --milestone M0 --baseline $base
+& $py tools/verify_v11.py --milestone M0 --baseline $base --baseline-git-ref a170d67
 # 期望 exit 0；M0 未完成时 exit 1，且 verify_report.json 的 failed 非空
+# A0-15 用 --baseline-git-ref 取 M0 修改前的 baseline，断言 smoke 段未被改写
 ```
 ---
 
