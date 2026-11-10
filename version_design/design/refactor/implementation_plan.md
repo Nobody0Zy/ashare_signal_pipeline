@@ -144,9 +144,9 @@ $ver = & $py -c "from pipeline.config import load_params; print(load_params('con
 | :--- | :---: | :--- | :--- |
 | `--milestone` | 是 | `M0`…`M5`（大小写敏感） | 非法值 → exit 2 |
 | `--baseline` | 是 | baseline JSON 路径 | 不可读 / JSON 解析失败 → exit 2 |
-| `--baseline-git-ref` | M0 是 | 该 baseline 在 M0 修改**之前**的 git 提交 | A0-15 用它取旧 `smoke` 段做防篡改比对；读不到该 ref → exit 1（不得 skip） |
+| `--baseline-git-ref` | M0 是 | 该 baseline 在 M0 修改**之前**的 git 提交 | A0-15 用它取旧 baseline 并保护旧版全部键；读不到该 ref → exit 1（不得 skip） |
 | `--config` | 否 | 本次验收的 YAML，默认 `configs/kernel_v11/check/refactor_check.yaml` | M0⑤、M3②③④ 使用；本机可传 `configs/local/refactor_check.yaml` |
-| `--state-file` | M3–M5 必填 | state JSON 路径或裸名；**可重复** | M0–M2 忽略 |
+| `--state-file` | M0、M3–M5 必填 | state JSON 路径或裸名；**可重复** | M0 用于 A0-17 对齐 M0-2 的 full step1 state；M3–M5 走原约束 |
 | `--output-dir` | M3–M5 必填 | `outputs/<experiment_version>`；**可重复** | 必须与对应 state 内的 `experiment_version` 一致，不一致判 fail |
 | `--report` | 否 | 报告路径，默认 `verify_report.json`（仓库根） | 只写这一个文件 |
 
@@ -217,8 +217,9 @@ $ver = & $py -c "from pipeline.config import load_params; print(load_params('con
 | ④ probe json 的 rows / n_symbols / min_idxd / max_idxd 与 baseline 一致（规模 ±1%） | A0-08 / A0-09 / A0-10 | rows、n_symbols 相对误差 ≤ `REL_TOL_PROBE`；min/max `idxd` 精确相等 |
 | ⑤ `refactor_check.yaml` 能被 `load_params` 加载 | A0-11 | 子进程加载成功（exit 0）且 `input.mode == "holding_file"` |
 | ⑥ `docs/14` 含 C1–C4 四个结论 | A0-12 | 正则命中 `^### C[1-4]` 各一次 |
-| （补充）基线未被篡改 | A0-15 | 用 `--baseline-git-ref` 取旧文件，断言 `smoke` 段逐值相同；只允许新增其它字段 |
+| （补充）基线未被篡改 | A0-15 | 用 `--baseline-git-ref` 取旧文件，对旧 baseline 的每个键断言 `new` 同键深度相等（浮点按 `ABS_TOL_FLOAT`）；只允许新增键 |
 | （补充）两套回归配置等价 | A0-16 | 子进程分别加载入库配置与本地配置，`build_experiment_version()` 必须相等 |
+| （补充）基线内部交叉一致性 | A0-17 | `target_stats.count == smoke.step1_sample_count`、`raw.datebar.rows == smoke.step1_datebar_rows`、`baseline.experiment_version == build_experiment_version(baseline.config)`、且与 M0-2 full step1 state 的 `target_stats` / `sample_count` 对齐 |
 
 **M1**
 
@@ -301,7 +302,8 @@ if ($ver -ne $ver_base) { throw "配置推导的 experiment_version ($ver) 与 b
 if ($LASTEXITCODE -ne 0) { throw "旧样本集指纹计算失败" }
 
 # M0-4 基线就绪自检（a170d67 = baseline 纳入版本控制时的提交，供 A0-15 防篡改比对）
-& $py tools/verify_v11.py --milestone M0 --baseline $base --baseline-git-ref a170d67
+& $py tools/verify_v11.py --milestone M0 --baseline $base --baseline-git-ref a170d67 `
+    --state-file "outputs/$ver/metadata/m0_legacy_step1.json"
 if ($LASTEXITCODE -ne 0) { throw "M0 验收未通过" }
 
 # M0-5 入库配置的就绪检查（data/raw 为空 → 2 属预期；已就绪 → 0）
@@ -328,8 +330,9 @@ if ($LASTEXITCODE -ne 0) { throw "M0 验收未通过" }
 | A0-12 | `docs/14_datebar_probe.md` 有 `### C1` / `C2` / `C3` / `C4` 四节 | 各 1 次命中 |
 | A0-13 | baseline 的 L3 观测块可解析为「字段名 → 数值」，与 state 的 `steps` 结构同名 | 结构可解析 |
 | A0-14 | `baseline.labels.builtin_names` 为非空字符串数组，且至少含 1 个命中 `^target_future_\d+d$` 的项、1 个命中 `^target_holding_return$` 的项 | 非空 + 各 pattern 命中 ≥ 1 |
-| A0-15 | **防篡改**：`git show <--baseline-git-ref>:<baseline 路径>` 的 `smoke` 段与当前 baseline 的 `smoke` 段逐值相同（键、值、嵌套 `steps.*.checks` 全部相等）；基线观测值只允许被"新增字段包围"，不允许被改写 | 深度相等；ref 读不到 → fail |
+| A0-15 | **防篡改**：`git show <--baseline-git-ref>:<baseline 路径>` 得到旧 baseline；对旧 baseline 的每个键，要求新 baseline 同键存在且值深度相等（递归；浮点用 `ABS_TOL_FLOAT`）；只允许新增旧版没有的键 | 深度相等；ref 读不到 → fail |
 | A0-16 | 入库配置与本地配置的 `build_experiment_version()` 相等（两者除 `data.*` 外逐值相同，而 `data.*` 不入哈希） | 字符串精确相等 |
+| A0-17 | **基线内部交叉一致性**：① `step1.target_stats.count == smoke.step1_sample_count`；② `raw.datebar.rows == smoke.step1_datebar_rows`；③ `experiment_version == build_experiment_version(baseline.config)`；④ 与 M0-2 full step1 state 的 `target_stats` 八键及 `sample_count` 对齐（未给 `--state-file` 判 fail） | 计数精确；浮点 `ABS_TOL_FLOAT` |
 
 ### 2.6 回滚点
 

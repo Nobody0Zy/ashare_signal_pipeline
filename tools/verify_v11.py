@@ -10,6 +10,7 @@ import subprocess
 import sys
 import traceback
 from datetime import datetime, timezone
+from numbers import Real
 from pathlib import Path
 from typing import Any
 
@@ -161,12 +162,63 @@ def _build_experiment_version(config_path: str) -> str:
     return value
 
 
-def _normalize_for_compare(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {k: _normalize_for_compare(v) for k, v in sorted(value.items())}
-    if isinstance(value, list):
-        return [_normalize_for_compare(v) for v in value]
-    return value
+def _is_number(value: Any) -> bool:
+    return isinstance(value, Real) and not isinstance(value, bool)
+
+
+def _deep_equal(expected: Any, actual: Any, path: str = "") -> tuple[bool, list[str]]:
+    diffs: list[str] = []
+
+    def _walk(exp: Any, act: Any, cursor: str) -> None:
+        location = cursor or "<root>"
+        if isinstance(exp, dict):
+            if not isinstance(act, dict):
+                diffs.append(f"{location}: type mismatch expected=dict actual={type(act).__name__}")
+                return
+            exp_keys = set(exp.keys())
+            act_keys = set(act.keys())
+            if exp_keys != act_keys:
+                missing = sorted(exp_keys - act_keys)
+                extra = sorted(act_keys - exp_keys)
+                if missing:
+                    diffs.append(f"{location}: missing keys {missing}")
+                if extra:
+                    diffs.append(f"{location}: extra keys {extra}")
+            for key in sorted(exp_keys & act_keys):
+                next_path = f"{location}.{key}" if location != "<root>" else str(key)
+                _walk(exp[key], act[key], next_path)
+            return
+        if isinstance(exp, list):
+            if not isinstance(act, list):
+                diffs.append(f"{location}: type mismatch expected=list actual={type(act).__name__}")
+                return
+            if len(exp) != len(act):
+                diffs.append(f"{location}: length mismatch expected={len(exp)} actual={len(act)}")
+                return
+            for idx, (exp_item, act_item) in enumerate(zip(exp, act)):
+                _walk(exp_item, act_item, f"{location}[{idx}]")
+            return
+        if _is_number(exp) and _is_number(act):
+            if isinstance(exp, int) and isinstance(act, int):
+                if exp != act:
+                    diffs.append(f"{location}: value mismatch expected={exp} actual={act}")
+            elif not _float_close(float(act), float(exp)):
+                diffs.append(f"{location}: float mismatch expected={exp} actual={act}")
+            return
+        if exp != act:
+            diffs.append(f"{location}: value mismatch expected={exp!r} actual={act!r}")
+
+    _walk(expected, actual, path)
+    return len(diffs) == 0, diffs
+
+
+def _resolve_state_path(state_file: str, experiment_version: str) -> Path:
+    state_path = Path(state_file)
+    if state_path.is_absolute():
+        return state_path
+    if state_path.parent == Path("."):
+        return Path.cwd() / "outputs" / experiment_version / "metadata" / state_path.name
+    return Path.cwd() / state_path
 
 
 def _run_m0_checks(args: argparse.Namespace, baseline: dict[str, Any], items: list[dict[str, Any]]) -> None:
@@ -352,19 +404,39 @@ def _run_m0_checks(args: argparse.Namespace, baseline: dict[str, Any], items: li
         if not args.baseline_git_ref:
             raise ValueError("M0 需要 --baseline-git-ref")
         baseline_path = Path(args.baseline)
-        baseline_repo_path = baseline_path.as_posix().lstrip("./")
+        if baseline_path.is_absolute():
+            baseline_repo_path = baseline_path.resolve().relative_to(Path.cwd().resolve()).as_posix()
+        else:
+            baseline_repo_path = baseline_path.as_posix().lstrip("./")
         rc, stdout, stderr = _run_subprocess(
             ["git", "--no-pager", "show", f"{args.baseline_git_ref}:{baseline_repo_path}"]
         )
         if rc != 0:
             raise RuntimeError(f"git show 失败: {stderr or '<empty>'}")
         old_baseline = json.loads(stdout)
-        expected_smoke = _normalize_for_compare(old_baseline.get("smoke"))
-        actual_smoke = _normalize_for_compare(baseline.get("smoke"))
-        passed = expected_smoke == actual_smoke
-        _add_item(items, "A0-15", "baseline_smoke_anti_tamper", expected_smoke, actual_smoke, passed)
+        if not isinstance(old_baseline, dict):
+            raise TypeError("旧 baseline 不是对象")
+        old_keys = sorted(old_baseline.keys())
+        missing_old_keys = [key for key in old_keys if key not in baseline]
+        mismatches: list[str] = []
+        for key in old_keys:
+            if key not in baseline:
+                continue
+            _, diffs = _deep_equal(old_baseline[key], baseline[key], key)
+            mismatches.extend(diffs)
+        passed = len(missing_old_keys) == 0 and len(mismatches) == 0
+        expected = {
+            "baseline_git_ref": args.baseline_git_ref,
+            "protected_old_keys": old_keys,
+        }
+        actual = {
+            "missing_old_keys": missing_old_keys,
+            "mismatches": mismatches,
+            "added_new_keys": sorted(set(baseline.keys()) - set(old_keys)),
+        }
+        _add_item(items, "A0-15", "baseline_legacy_keys_anti_tamper", expected, actual, passed)
     except Exception as exc:
-        _append_exception_item(items, "A0-15", "baseline_smoke_anti_tamper", {"baseline_git_ref": args.baseline_git_ref}, exc)
+        _append_exception_item(items, "A0-15", "baseline_legacy_keys_anti_tamper", {"baseline_git_ref": args.baseline_git_ref}, exc)
 
     # A0-16
     try:
@@ -376,6 +448,104 @@ def _run_m0_checks(args: argparse.Namespace, baseline: dict[str, Any], items: li
         _add_item(items, "A0-16", "repo_vs_local_experiment_version_equal", expected, actual, repo_version == local_version)
     except Exception as exc:
         _append_exception_item(items, "A0-16", "repo_vs_local_experiment_version_equal", {"repo_config": args.config}, exc)
+
+    # A0-17
+    try:
+        expected_stats_keys = ["count", "mean", "std", "min", "25%", "50%", "75%", "max"]
+        baseline_stats = baseline.get("step1", {}).get("target_stats", {})
+        smoke_sample_count = baseline.get("smoke", {}).get("step1_sample_count")
+        raw_datebar_rows = baseline.get("raw", {}).get("datebar", {}).get("rows")
+        smoke_datebar_rows = baseline.get("smoke", {}).get("step1_datebar_rows")
+
+        subchecks: dict[str, dict[str, Any]] = {}
+
+        pass_01 = baseline_stats is not None and smoke_sample_count is not None and _float_close(
+            float(baseline_stats.get("count")),
+            float(smoke_sample_count),
+        )
+        subchecks["count_equals_smoke_sample_count"] = {
+            "pass": pass_01,
+            "expected": smoke_sample_count,
+            "actual": baseline_stats.get("count") if isinstance(baseline_stats, dict) else None,
+        }
+
+        pass_02 = raw_datebar_rows is not None and smoke_datebar_rows is not None and int(raw_datebar_rows) == int(smoke_datebar_rows)
+        subchecks["raw_datebar_rows_equals_smoke_step1_datebar_rows"] = {
+            "pass": pass_02,
+            "expected": smoke_datebar_rows,
+            "actual": raw_datebar_rows,
+        }
+
+        baseline_config = _baseline_config_path(baseline)
+        built_version = _build_experiment_version(baseline_config)
+        baseline_version = baseline.get("experiment_version")
+        pass_03 = isinstance(baseline_version, str) and baseline_version == built_version
+        subchecks["baseline_version_equals_built_from_baseline_config"] = {
+            "pass": pass_03,
+            "expected": baseline_version,
+            "actual": built_version,
+        }
+
+        sub4_detail = ""
+        pass_04 = False
+        sub4_actual: dict[str, Any] = {"state_file": None}
+        sub4_expected: dict[str, Any] = {
+            "target_stats_keys": expected_stats_keys,
+            "sample_count": smoke_sample_count,
+        }
+        if not args.state_file:
+            sub4_detail = "M0 未提供 --state-file"
+        else:
+            experiment_version = str(baseline.get("experiment_version", "")).strip()
+            resolved_states = [_resolve_state_path(state_file, experiment_version) for state_file in args.state_file]
+            existing = [path for path in resolved_states if path.exists()]
+            if not existing:
+                sub4_detail = f"--state-file 均不存在: {[str(path) for path in resolved_states]}"
+            else:
+                state_path = existing[0]
+                state_json = _read_json(state_path)
+                state_stats = (
+                    state_json.get("steps", {})
+                    .get("step_1", {})
+                    .get("details", {})
+                    .get("target_stats", {})
+                )
+                state_sample_count = (
+                    state_json.get("steps", {})
+                    .get("step_1", {})
+                    .get("details", {})
+                    .get("sample_count")
+                )
+                stats_key_match = isinstance(state_stats, dict) and set(state_stats.keys()) == set(expected_stats_keys)
+                stats_equal = False
+                if stats_key_match and isinstance(baseline_stats, dict) and set(baseline_stats.keys()) == set(expected_stats_keys):
+                    stats_equal, _ = _deep_equal(baseline_stats, state_stats, "step1.target_stats")
+                sample_count_equal = (
+                    state_sample_count is not None
+                    and smoke_sample_count is not None
+                    and int(state_sample_count) == int(smoke_sample_count)
+                )
+                pass_04 = stats_key_match and stats_equal and sample_count_equal
+                sub4_actual = {
+                    "state_file": str(state_path),
+                    "state_target_stats_keys": sorted(state_stats.keys()) if isinstance(state_stats, dict) else None,
+                    "state_sample_count": state_sample_count,
+                    "stats_equal": stats_equal,
+                    "sample_count_equal": sample_count_equal,
+                }
+                if not pass_04:
+                    sub4_detail = "state.step_1.details 与 baseline.step1/ smoke 交叉一致性失败"
+        subchecks["baseline_step1_vs_state_step1_consistency"] = {
+            "pass": pass_04,
+            "expected": sub4_expected,
+            "actual": sub4_actual,
+            "detail": sub4_detail,
+        }
+
+        passed = all(entry.get("pass") for entry in subchecks.values())
+        _add_item(items, "A0-17", "baseline_internal_cross_consistency", "all_subchecks_pass", subchecks, passed)
+    except Exception as exc:
+        _append_exception_item(items, "A0-17", "baseline_internal_cross_consistency", "all_subchecks_pass", exc)
 
 
 def _build_parser() -> argparse.ArgumentParser:

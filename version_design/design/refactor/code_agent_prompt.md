@@ -535,9 +535,10 @@ invalid_reasons = {"unknown_symbol": 0, "date_not_in_symbol_range": 0,
 **最小验收命令**：
 
 ```powershell
-& $py tools/verify_v11.py --milestone M0 --baseline $base --baseline-git-ref a170d67
+& $py tools/verify_v11.py --milestone M0 --baseline $base --baseline-git-ref a170d67 `
+    --state-file "outputs/$ver/metadata/m0_legacy_step1.json"
 # 期望 exit 0；M0 未完成时 exit 1，且 verify_report.json 的 failed 非空
-# A0-15 用 --baseline-git-ref 取 M0 修改前的 baseline，断言 smoke 段未被改写
+# A0-15 用 --baseline-git-ref 取 M0 修改前的 baseline，断言旧版全部键未被改写（仅允许新增键）
 ```
 ---
 
