@@ -86,6 +86,7 @@ $ver = & $py -c "from pipeline.config import load_params; print(load_params('con
 | 两种 tag 不是一回事 | `m<k>-ok` 是本地轻量回滚 tag；`v1.1.0` 是发布用 annotated tag |
 | 为什么必须提交 | A3-01（`git diff --name-only HEAD`）与 A5-01（`git ls-files`）都以 HEAD 为基准：不提交时 M3 的 diff 会带出 M0/M1/M2 的文件（判越界）；M5 删除 `verify_v11.py` 后未提交，`git ls-files` 仍返回 0（判未删除） |
 | 删除文件怎么暂存 | 用 `git add <已删除路径>` 暂存删除（等价 `git rm --cached` + 文件已删），仍然不要用 `git add -A` |
+| 台账要跟着提交 | `outputs/experiment_registry.json` 是**已跟踪**文件，而每次跑 pipeline 都会重写它。凡本里程碑运行过 pipeline 的，收尾时把它一并 `git add`；它不计入白名单越界，但必须随该里程碑提交，否则 `git status` 会留下白名单外的改动（违反结项标准第 6 条） |
 
 未跟踪的运行期产物（`data/**`、`outputs/**`、`models/**`、`configs/local/**`）不进入任何里程碑提交；`version_design/design/refactor/**` 中列在该里程碑白名单里的设计产物（如 `baseline_v1.0.13.json`、`datebar_probe.json`）随该里程碑一起提交。
 
@@ -337,7 +338,8 @@ if ($LASTEXITCODE -ne 0) { throw "M0 验收未通过" }
 ```powershell
 git add tools/probe_datebar.py tools/verify_v11.py docs/14_datebar_probe.md `
     version_design/design/refactor/baseline_v1.0.13.json version_design/design/refactor/datebar_probe.json `
-    configs/kernel_v11/check/refactor_check.yaml configs/experiment_index.yaml
+    configs/kernel_v11/check/refactor_check.yaml configs/experiment_index.yaml `
+    outputs/experiment_registry.json
 git commit -m "feat(tools): add v1.1 verification and datebar probe with self-contained baseline"
 git tag m0-ok
 ```
