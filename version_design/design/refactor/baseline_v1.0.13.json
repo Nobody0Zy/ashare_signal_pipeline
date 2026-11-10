@@ -4,6 +4,144 @@
   "config": "configs/local/refactor_check.yaml",
   "experiment_version": "kernel_v11/check/kernel_v11_20261102_baseline_75443d88",
   "seed": 42,
+  "smoke_size": 500,
+  "run_date": "20261102",
+  "label": "baseline",
+  "base_version": "kernel_v11",
+  "version_subdir": "check",
+  "window": {
+    "lookback_days": 60,
+    "chunk_size_slices": 5000
+  },
+  "time_split": {
+    "train_end": 20201130,
+    "val_start": 20210322,
+    "val_end": 20221231,
+    "test_start": 20230410,
+    "buffer_trading_days": 60,
+    "enforce_buffer": true
+  },
+  "feature_selection": {
+    "max_features": 50,
+    "top_candidates": 100,
+    "corr_threshold": 0.95,
+    "target_clip_low": 0.01,
+    "target_clip_high": 0.99,
+    "selection_mode": "correlation"
+  },
+  "manual_features": {
+    "include_date": false,
+    "include_year": false,
+    "include_month": false,
+    "include_non_trading_ratio": true,
+    "non_trading_ratio_fill_value": 0.0,
+    "include_signal_date_selection_score": true,
+    "selection_score_fill_value": 0.0
+  },
+  "tsfresh": {
+    "chunk_size_tsfresh": 0,
+    "tsfresh_n_jobs": 0,
+    "fc_profile": "compact"
+  },
+  "lgb": {
+    "lgb_profile": "default",
+    "objective": "regression",
+    "metric": "mae",
+    "boosting_type": "gbdt",
+    "num_leaves": 31,
+    "max_depth": 7,
+    "learning_rate": 0.05,
+    "min_child_samples": 100,
+    "subsample": 0.6,
+    "colsample_bytree": 0.8,
+    "reg_alpha": 1.0,
+    "reg_lambda": 1.0,
+    "seed": 42,
+    "num_threads": 1,
+    "verbose": -1,
+    "num_boost_round": 3000,
+    "early_stopping_rounds": 100,
+    "log_evaluation_period": 100
+  },
+  "raw": {
+    "holding": {
+      "path": "D:\\strategy_explore_total\\strategy_explore\\data\\raw\\holding_stats_all.parquet",
+      "sha256": "a7c9142241e623f9be892b962027886a71918bb77ab37688f6073e55a6c3adae",
+      "rows": 240467,
+      "min": 20070201,
+      "max": 20250113
+    },
+    "datebar": {
+      "path": "D:\\strategy_explore_total\\strategy_explore\\data\\raw\\dateBar.pkl",
+      "sha256": "294b05049234e69943e44f01c45fb1db84ce3cea224bb376118f056c32cd59c0",
+      "rows": 15547065,
+      "n_symbols": 6090,
+      "min": 20070104,
+      "max": 20250114
+    }
+  },
+  "step1": {
+    "target_stats": {
+      "count": 240257.0,
+      "mean": 0.007655736769942917,
+      "std": 0.17210384495173559,
+      "min": -0.5277657462313565,
+      "25%": -0.06489945753015258,
+      "50%": -0.03012998774218334,
+      "75%": 0.02729519874701869,
+      "max": 7.612734534006371
+    }
+  },
+  "legacy_holding_samples_set_hash": "0840dd07a39d0fc3",
+  "labels": {
+    "builtin_names": [
+      "target_future_5d",
+      "target_future_10d",
+      "target_future_20d",
+      "target_future_40d",
+      "target_trend_quality_20d",
+      "target_holding_return"
+    ],
+    "target_holding_return": {
+      "coverage": 1.0
+    }
+  },
+  "data_prep": {
+    "date_range_start": null,
+    "date_range_end": null,
+    "universe": {
+      "exclude_prefixes": [
+        "sh000",
+        "sz399",
+        "sh950"
+      ],
+      "min_history_days": 60
+    },
+    "samples": {
+      "method": "bollinger_breakout",
+      "params": {
+        "ma_period": 20.0,
+        "std_mult": 2.0
+      },
+      "max_samples": null
+    },
+    "labels": {
+      "drop_blocked_entries": true,
+      "params": {
+        "future_return": {
+          "horizons": [
+            5,
+            10,
+            20,
+            40
+          ]
+        },
+        "trend_quality": {
+          "horizon": 20
+        }
+      }
+    }
+  },
   "smoke": {
     "n": 500,
     "steps": {

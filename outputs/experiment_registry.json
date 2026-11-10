@@ -2,8 +2,8 @@
   {
     "experiment_version": "kernel_v11/check/kernel_v11_20261102_baseline_75443d88",
     "experiment": {
-      "catalog_name": "",
-      "description": "自动生成实验说明：base_version=kernel_v11, label=baseline, base_version 仅表示实验谱系，不用于单项功能或参数调整, include_date=False, include_year=False, include_month=False.",
+      "catalog_name": "kernel_v11_check_baseline",
+      "description": "v1.1 refactor baseline regression config for M0 verification.",
       "base_version": "kernel_v11",
       "run_date": "20261102",
       "label": "baseline",
@@ -26,21 +26,22 @@
       "models_dir": "models/kernel_v11/check/kernel_v11_20261102_baseline_75443d88",
       "output_dir": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88",
       "metadata_dir": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/metadata",
-      "state_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/metadata/baseline_smoke.json"
+      "state_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/metadata/m0_legacy_step1.json"
     },
     "artifact_files": {
-      "state_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/metadata/baseline_smoke.json",
-      "prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/predictions_smoke.csv",
-      "test_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/predictions_smoke.csv",
-      "train_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/train_predictions_smoke.csv",
-      "val_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/val_predictions_smoke.csv",
-      "model_file": "models/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/lgb_model_smoke.txt",
-      "train_split_file": "data/splits/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/train_smoke.parquet",
-      "val_split_file": "data/splits/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/val_smoke.parquet",
-      "test_split_file": "data/splits/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/test_smoke.parquet",
-      "selected_features_file": "data/features/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/selected_features_smoke.txt",
-      "model_feature_schema_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/metadata/model_feature_schema_smoke.json",
-      "analysis_report_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/analysis_report.json"
+      "state_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/metadata/m0_legacy_step1.json",
+      "prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/predictions.csv",
+      "test_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/predictions.csv",
+      "train_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/train_predictions.csv",
+      "val_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/val_predictions.csv",
+      "model_file": "models/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/lgb_model.txt",
+      "train_split_file": "data/splits/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/train.parquet",
+      "val_split_file": "data/splits/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/val.parquet",
+      "test_split_file": "data/splits/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/test.parquet",
+      "selected_features_file": "data/features/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/selected_features.txt",
+      "model_feature_schema_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/metadata/model_feature_schema.json",
+      "analysis_report_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/analysis_report.json",
+      "clip_percentiles_file": "data/features/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/clip_percentiles.json"
     },
     "artifact_files_by_mode": {
       "smoke": {
@@ -56,9 +57,24 @@
         "selected_features_file": "data/features/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/selected_features_smoke.txt",
         "model_feature_schema_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/metadata/model_feature_schema_smoke.json",
         "analysis_report_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/analysis_report.json"
+      },
+      "full": {
+        "state_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/metadata/m0_legacy_step1.json",
+        "prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/predictions.csv",
+        "test_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/predictions.csv",
+        "train_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/train_predictions.csv",
+        "val_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/val_predictions.csv",
+        "model_file": "models/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/lgb_model.txt",
+        "train_split_file": "data/splits/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/train.parquet",
+        "val_split_file": "data/splits/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/val.parquet",
+        "test_split_file": "data/splits/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/test.parquet",
+        "selected_features_file": "data/features/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/selected_features.txt",
+        "model_feature_schema_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/metadata/model_feature_schema.json",
+        "analysis_report_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/analysis_report.json",
+        "clip_percentiles_file": "data/features/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/clip_percentiles.json"
       }
     },
     "master_library": {},
-    "latest_run_mode": "smoke"
+    "latest_run_mode": "full"
   }
 ]

@@ -1,0 +1,109 @@
+seed: 42
+smoke_size: 500
+
+data:
+  holding_file: data/raw/holding_stats_all.parquet
+  datebar_file: data/raw/dateBar.pkl
+
+experiment:
+  version_subdir: "check"
+  base_version: kernel_v11
+  run_date: "20261102"
+  label: "baseline"
+  include_param_hash: true
+  param_hash_length: 8
+  auto_eval_summary: true
+
+window:
+  lookback_days: 60
+  chunk_size_slices: 5000
+
+sample_filter:
+  max_holding_days: null
+  tolerance: 1.0
+
+indicators:
+  profile: base
+  rsi_period: 14
+  atr_period: 14
+  ma_windows: [5, 10, 20]
+  boll_period: 20
+  boll_std_mult: 2.0
+  volume_ma_period: 20
+  momentum_period: 5
+  volatility_period: 20
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  kdj_period: 9
+  kdj_k_period: 3
+  kdj_d_period: 3
+  skip_indicators: false
+  lookback_periods: []
+  lookback_columns:
+    - open
+    - high
+    - low
+    - close
+    - volume
+
+tsfresh:
+  chunk_size_tsfresh: 0
+  tsfresh_n_jobs: 0
+  fc_profile: compact
+
+feature_selection:
+  max_features: 50
+  top_candidates: 100
+  corr_threshold: 0.95
+  target_clip_low: 0.01
+  target_clip_high: 0.99
+  selection_mode: correlation
+
+time_split:
+  train_end: 20201130
+  val_start: 20210322
+  val_end: 20221231
+  test_start: 20230410
+  buffer_trading_days: 60
+  enforce_buffer: true
+
+monitoring:
+  enabled: false
+  level: light
+
+manual_features:
+  include_date: false
+  include_year: false
+  include_month: false
+  include_non_trading_ratio: true
+  non_trading_ratio_fill_value: 0.0
+  include_signal_date_selection_score: true
+  selection_score_fill_value: 0.0
+
+split:
+  smoke_train_ratio: 0.70
+  smoke_val_ratio: 0.15
+
+lgb:
+  lgb_profile: default
+  objective: regression
+  metric: mae
+  boosting_type: gbdt
+  num_leaves: 31
+  max_depth: 7
+  learning_rate: 0.05
+  min_child_samples: 100
+  subsample: 0.6
+  colsample_bytree: 0.8
+  reg_alpha: 1.0
+  reg_lambda: 1.0
+  seed: 42
+  num_threads: 1
+  verbose: -1
+  num_boost_round: 3000
+  early_stopping_rounds: 100
+  log_evaluation_period: 100
+
+eval:
+  pred_group_q: 5

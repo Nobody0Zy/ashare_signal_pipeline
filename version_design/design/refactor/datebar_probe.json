@@ -1,0 +1,72 @@
+{
+  "config": "configs/local/refactor_check.yaml",
+  "datebar_path": "D:\\strategy_explore_total\\strategy_explore\\data\\raw\\dateBar.pkl",
+  "rows": 15547065,
+  "n_symbols": 6090,
+  "trading_days": 4384,
+  "min_idxd": 20070104,
+  "max_idxd": 20250114,
+  "duplicate_id_pairs": 0,
+  "columns_after_reset_index": [
+    "idxs",
+    "idxd",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "amount",
+    "xs",
+    "paused",
+    "marks"
+  ],
+  "dtypes_after_reset_index": {
+    "idxs": "object",
+    "idxd": "int64",
+    "open": "float32",
+    "high": "float32",
+    "low": "float32",
+    "close": "float32",
+    "volume": "float32",
+    "amount": "float32",
+    "xs": "float32",
+    "paused": "int16",
+    "marks": "int16"
+  },
+  "idxs_format": {
+    "regex": "^(sh|sz|bj)\\d{6}$",
+    "match_ratio": 1.0,
+    "unique_prefix_counts": {
+      "sh000": 885885,
+      "sz399": 1160705,
+      "sh950": 0
+    }
+  },
+  "paused": {
+    "rows": 495825,
+    "ratio": 0.03189187155260494,
+    "paused_volume_le_zero_ratio": 0.9999233600564715
+  },
+  "marks": {
+    "nunique": 43,
+    "min": 0,
+    "max": 3841,
+    "bits_ge_12_nonzero_rows": 0
+  },
+  "xs": {
+    "non_null_ratio": 1.0,
+    "min": 1.0,
+    "max": 10775.51953125,
+    "close_div_xs_median": 13.471399307250977
+  },
+  "price_sanity": {
+    "high_lt_low_rows": 54,
+    "high_lt_max_open_close_rows": 109,
+    "low_gt_min_open_close_rows": 26
+  },
+  "amount_unit_check": {
+    "rows_used": 15048890,
+    "ratio_median": 99.81365203857422,
+    "ratio_p95": 101.96160125732422
+  }
+}
