@@ -761,6 +761,9 @@ git tag m4-ok
 | `outputs/experiment_registry.json` | 修改 | 只保留可复现（有全绿 state）的条目 | §7 M5 / §3.5 |
 | `tools/verify_v11.py` | 删除（或归档到 `version_design/design/refactor/verify_v11.py`） | — | §8.1 稳定性约束 |
 
+> 归档与删除两种做法都必须让 `git ls-files tools/verify_v11.py` 不再命中（A5-01）；
+> 选择归档时，归档文件本身要在 M5-5 的 `git add` 里，否则 `git status` 会留下未跟踪文件。
+
 ### 7.3 验收命令
 
 ```powershell
@@ -796,6 +799,8 @@ $ver_rel = & $py -c "from pipeline.config import load_params; import sys; print(
 if ($LASTEXITCODE -ne 0) { throw "台账收敛失败" }
 
 # M5-4 归档并做删除演练
+# 归档目标目录已被 git 跟踪，因此归档后的新文件必须在 M5-5 一并 git add，
+# 否则 git status 会出现白名单外的未跟踪文件，违反结项标准第 6 条。
 Move-Item tools/verify_v11.py version_design/design/refactor/verify_v11.py
 & $py -m pytest tests -q
 if ($LASTEXITCODE -ne 0) { throw "删除演练：pytest 失败" }
@@ -809,7 +814,7 @@ if ($LASTEXITCODE -ne 0) { throw "删除演练：pytest 失败" }
 git add docs/00_start_here.md docs/01_pipeline_contract.md docs/08_lineage_startup.md `
     docs/10_architecture.md docs/11_baseline_fixture_guide.md AGENTS.md `
     version_design/design/refactor/README.md outputs/experiment_registry.json `
-    tools/verify_v11.py
+    tools/verify_v11.py version_design/design/refactor/verify_v11.py
 git commit -m "docs: close out v1.1 refactor and archive verify script"
 if ($LASTEXITCODE -ne 0) { throw "M5 白名单提交失败" }
 git tag -a v1.1.0 -m "v1.1.0: decouple samples from labels"
@@ -846,7 +851,8 @@ M5 的提交在 §7.3 M5-5 完成（与 `v1.1.0` tag 同一个提交）。此处
 git add docs/00_start_here.md docs/01_pipeline_contract.md docs/08_lineage_startup.md `
     docs/10_architecture.md docs/11_baseline_fixture_guide.md AGENTS.md `
     version_design/design/refactor/README.md outputs/experiment_registry.json `
-    tools/verify_v11.py           # 与 §7.3 M5-5 同一组路径；已提交时为空操作
+    tools/verify_v11.py version_design/design/refactor/verify_v11.py
+    # 与 §7.3 M5-5 同一组路径；已提交时为空操作
 git commit -m "docs: close out v1.1 refactor and archive verify script"
 git tag m5-ok
 ```
