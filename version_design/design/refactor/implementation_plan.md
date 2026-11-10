@@ -87,7 +87,7 @@ $ver = & $py -c "from pipeline.config import load_params; print(load_params('con
 | 为什么必须提交 | A3-01（`git diff --name-only HEAD`）与 A5-01（`git ls-files`）都以 HEAD 为基准：不提交时 M3 的 diff 会带出 M0/M1/M2 的文件（判越界）；M5 删除 `verify_v11.py` 后未提交，`git ls-files` 仍返回 0（判未删除） |
 | 删除文件怎么暂存 | 用 `git add <已删除路径>` 暂存删除（等价 `git rm --cached` + 文件已删），仍然不要用 `git add -A` |
 | 台账要跟着提交 | `outputs/experiment_registry.json` 是**已跟踪**文件，而每次跑 pipeline 都会重写它。凡本里程碑运行过 pipeline 的，收尾时把它一并 `git add`；它不计入白名单越界，但必须随该里程碑提交，否则 `git status` 会留下白名单外的改动（违反结项标准第 6 条） |
-| 验收工具可以扩展，但不得放宽 | `tools/verify_v11.py` 在每个里程碑都允许**新增**该里程碑的检查入口（M0→`_run_m0_checks`，M1→`_run_m1_checks`，…），这**不计入白名单越界**，但必须随该里程碑提交；**禁止修改或删除已实现的任何 `_run_m<k>_checks` 与共享助手**（区别于新增）。机械校验：`git diff --numstat m<k-1>-ok..m<k>-ok -- tools/verify_v11.py` 的删除行数必须为 0（仅允许新增；`--milestone M<k-1>` 必须仍然 exit 0）。 |
+| 验收工具可以扩展，但不得放宽 | `tools/verify_v11.py` 在每个里程碑都允许**新增**该里程碑的检查入口（M0→`_run_m0_checks`，M1→`_run_m1_checks`，…），这**不计入白名单越界**，但必须随该里程碑提交；**禁止修改或删除已实现的任何 `_run_m<k>_checks` 与共享助手**（区别于新增）。机械校验落在**下一个**里程碑的 Gate（此时上一个 tag 已存在，当前 tag 尚未打）：M<k> 的 Gate 读取 `git diff --numstat m<k-1>-ok..HEAD -- tools/verify_v11.py`，删除列必须为 0、新增列必须 > 0，且 `--milestone M<k-1>` 仍须 exit 0（见断言 A1-15 / A2-11 / A3-11 / A4-19 / A5-09）。 |
 
 未跟踪的运行期产物（`data/**`、`outputs/**`、`models/**`、`configs/local/**`）不进入任何里程碑提交；`version_design/design/refactor/**` 中列在该里程碑白名单里的设计产物（如 `baseline_v1.0.13.json`、`datebar_probe.json`）随该里程碑一起提交。
 
@@ -456,6 +456,7 @@ if ($LASTEXITCODE -ne 0) { throw "M1 验收未通过" }
 | A1-12 | 无 `exclude_prefixes` 前缀 | 计数 0（前缀取自 baseline） |
 | A1-13 | 某个样本集的 `(idxs, idxd)` 集合指纹 == `baseline.legacy_holding_samples_set_hash` | 精确 |
 | A1-14 | `sample_id` 与 `(idxs, idxd)` 双射（解码后逐行相等） | 精确 |
+| A1-15 | verify_v11 只增不改：`git diff --numstat m0-ok..HEAD -- tools/verify_v11.py` 删除列 == 0 且新增列 > 0；`--milestone M0` 仍 exit 0 | 删除列精确 0 |
 
 ### 3.5 回滚点
 
@@ -541,6 +542,7 @@ if ($LASTEXITCODE -ne 0) { throw "M2 验收未通过" }
 | A2-08 | 目录内无孤儿文件、索引内无孤儿条目 | 双向一致 |
 | A2-09 | `label_name` 列 == 文件名 | 精确 |
 | A2-10 | `samples_id` / `datebar_fingerprint` 列 == manifest 对应值 | 精确 |
+| A2-11 | verify_v11 只增不改：`git diff --numstat m1-ok..HEAD -- tools/verify_v11.py` 删除列 == 0 且新增列 > 0；`--milestone M1` 仍 exit 0 | 删除列精确 0 |
 
 ### 4.5 回滚点
 
@@ -627,6 +629,7 @@ if ($LASTEXITCODE -ne 0) { throw "M3 验收未通过" }
 | A3-08 | `docs/15_data_contract.md` 存在且含内置采样与标签清单两节 | 各存在 |
 | A3-09 | `data_prep/**` 中无 `import pipeline` / `from pipeline` | 命中 0 |
 | A3-10 | `tools/build_samples.py`、`tools/build_labels.py` 中无 `yaml.safe_load` | 命中 0 |
+| A3-11 | verify_v11 只增不改：`git diff --numstat m2-ok..HEAD -- tools/verify_v11.py` 删除列 == 0 且新增列 > 0；`--milestone M2` 仍 exit 0 | 删除列精确 0 |
 
 ### 5.5 回滚点
 
@@ -749,6 +752,7 @@ M4 的守恒恒等式验收**只要求 smoke 口径**；`$full_state` 分支默�
 | A4-16 | `docs/14` 记录了 `data_prep/datebar.py` 与 `_clean_datebar` 的按值比对结论 | 命中 ≥ 1 |
 | A4-17 | samples 模式 `holding_clean` 按 `sample_id` 升序 | `diff() > 0` 全真 |
 | A4-18 | `data_prep/datebar.py` 与 `_clean_datebar` 的 9 列按值逐值相等 | 数值精确（dtype 允许 int32/int64 差异） |
+| A4-19 | verify_v11 只增不改：`git diff --numstat m3-ok..HEAD -- tools/verify_v11.py` 删除列 == 0 且新增列 > 0；`--milestone M3` 仍 exit 0 | 删除列精确 0 |
 
 ### 6.5 回滚点
 
@@ -779,7 +783,7 @@ git tag m4-ok
 | `AGENTS.md` | 修改 | 目录职责 + 铁律补充 + §5 路径表述 | §7 M5 |
 | `version_design/design/refactor/README.md` | 修改 | 记一行目录约定，避免两套路径并存 | §7 M5 |
 | `outputs/experiment_registry.json` | 修改 | 只保留可复现（有全绿 state）的条目 | §7 M5 / §3.5 |
-| `tools/verify_v11.py` | 删除（或归档到 `version_design/design/refactor/verify_v11.py`） | — | §8.1 稳定性约束 |
+| `tools/verify_v11.py` | **先新增 `_run_m5_checks`（仅新增）→ 再删除或归档到 `version_design/design/refactor/verify_v11.py`** | M5 检查入口 | §8.1 稳定性约束 |
 
 > 归档与删除两种做法都必须让 `git ls-files tools/verify_v11.py` 不再命中（A5-01）；
 > 选择归档时，归档文件本身要在 M5-5 的 `git add` 里，否则 `git status` 会留下未跟踪文件。
@@ -818,6 +822,8 @@ $ver_rel = & $py -c "from pipeline.config import load_params; import sys; print(
 & $py -c 'import json, pathlib; p=pathlib.Path("outputs/experiment_registry.json"); E=json.loads(p.read_text(encoding="utf-8")); ok=lambda e: any((lambda s: len(s)==6 and all(v.get("status")=="completed" and v.get("checks_passed") is True for v in s.values()))(json.loads(x.read_text(encoding="utf-8")).get("steps",{})) for x in sorted((pathlib.Path("outputs")/e["experiment_version"]/"metadata").glob("pipeline_state_*.json"))); keep=[e for e in E if ok(e)]; p.write_text(json.dumps(keep,ensure_ascii=False,indent=2),encoding="utf-8"); print(len(keep))'
 if ($LASTEXITCODE -ne 0) { throw "台账收敛失败" }
 
+# 注意：_run_m5_checks 必须在 Move-Item 之前加进 tools/verify_v11.py，
+#      归档后该文件不再是工作副本，无法再改（且 M5-5 会一并提交归档副本）
 # M5-4 归档并做删除演练
 # 归档目标目录已被 git 跟踪，因此归档后的新文件必须在 M5-5 一并 git add，
 # 否则 git status 会出现白名单外的未跟踪文件，违反结项标准第 6 条。
@@ -862,6 +868,7 @@ if ($LASTEXITCODE -ne 0) { throw "M5 验收未通过" }
 | A5-06 | `git cat-file -t v1.1.0` == `tag` | 精确 |
 | A5-07 | `version_design/design/refactor/README.md` 含目录约定一行 | 命中 ≥ 1 |
 | A5-08 | `AGENTS.md` 与 `docs/08` 不再出现两套目录写法并存（只保留 `version_design/design/<lineage>/`） | 命中 0（旧写法） |
+| A5-09 | verify_v11 M5 改动是纯删除或整体归档：`git diff --numstat m4-ok..HEAD -- tools/verify_v11.py` 的 added == 0（允许整体消失，禁止新增行后部分删除）；归档副本存在时 `--milestone M4` 仍 exit 0 | added 精确 0 |
 
 ### 7.5 回滚点
 

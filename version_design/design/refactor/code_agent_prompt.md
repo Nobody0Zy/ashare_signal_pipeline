@@ -540,6 +540,9 @@ invalid_reasons = {"unknown_symbol": 0, "date_not_in_symbol_range": 0,
 # 期望 exit 0；M0 未完成时 exit 1，且 verify_report.json 的 failed 非空
 # A0-15 用 --baseline-git-ref 取 M0 修改前的 baseline，断言旧版全部键未被改写（仅允许新增键）
 ```
+
+> M5 注意：`_run_m5_checks` 必须在归档（`Move-Item`）**之前**加进 `tools/verify_v11.py`；归档后该文件不再是工作副本，无法再修改（见 §7.3 M5-4 注释与 A5-09）。
+
 ---
 
 ## 8. 禁止发明清单（逐条保留，不得压缩改写含义）

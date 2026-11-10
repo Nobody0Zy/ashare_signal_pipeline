@@ -547,6 +547,25 @@ def _run_m0_checks(args: argparse.Namespace, baseline: dict[str, Any], items: li
     except Exception as exc:
         _append_exception_item(items, "A0-17", "baseline_internal_cross_consistency", "all_subchecks_pass", exc)
 
+    # A0-18
+    try:
+        exp_hash = baseline.get("legacy_holding_samples_set_hash")
+        experiment_version = str(baseline.get("experiment_version", "")).strip()
+        if not experiment_version:
+            raise ValueError("baseline.experiment_version 为空，无法定位 holding_clean.parquet")
+        hc_path = Path("data") / "processed" / experiment_version / "holding_clean.parquet"
+        if not hc_path.exists():
+            raise FileNotFoundError(f"holding_clean.parquet 不存在: {hc_path}")
+        hc_df = pd.read_parquet(hc_path, columns=["idxs", "signal_date"])
+        if "idxs" not in hc_df.columns or "signal_date" not in hc_df.columns:
+            raise ValueError(f"holding_clean.parquet 缺少必要列 idxs/signal_date，实际列: {list(hc_df.columns)}")
+        hash_input = "\n".join(sorted(f"{a},{int(b)}" for a, b in zip(hc_df["idxs"], hc_df["signal_date"])))
+        actual_hash = hashlib.sha256(hash_input.encode("utf-8")).hexdigest()[:16]
+        passed = actual_hash == exp_hash
+        _add_item(items, "A0-18", "legacy_hash_recomputed", exp_hash, actual_hash, passed)
+    except Exception as exc:
+        _append_exception_item(items, "A0-18", "legacy_hash_recomputed", baseline.get("legacy_holding_samples_set_hash"), exc)
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="v1.1 里程碑验收脚本。")
