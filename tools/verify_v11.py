@@ -937,9 +937,420 @@ def _run_m1_checks(args: argparse.Namespace, baseline: dict[str, Any], items: li
                                 {"min_count": 2, "legacy_hash_matches": 1}, exc)
 
 
+def _run_m2_checks(args: argparse.Namespace, baseline: dict[str, Any], items: list[dict[str, Any]]) -> None:
+    """M2 断言 A2-01…A2-11：labels 层结构与缓存验证。"""
+    import numpy as np
+    import pyarrow.parquet as pq
+
+    samples_ids: list[str] = args.samples_id
+    builtin_names: list[str] = baseline.get("labels", {}).get("builtin_names", [])
+    legacy_hash = str(baseline.get("legacy_holding_samples_set_hash", ""))
+
+    LABEL_REQUIRED_COLS: set[str] = {
+        "sample_id", "idxs", "signal_date", "target",
+        "entry_idxd", "exit_idxd", "is_complete", "is_entry_blocked",
+        "label_name", "label_params_hash", "samples_id",
+        "datebar_fingerprint", "created_at",
+    }
+
+    # ── 预加载 samples 数据 ──
+    sample_data: dict[str, dict[str, Any]] = {}
+    for sid in samples_ids:
+        try:
+            sp = Path("data") / "prepared" / sid / "samples.parquet"
+            mp = Path("data") / "prepared" / sid / "manifest.json"
+            df = pd.read_parquet(sp)
+            manifest = _read_json(mp)
+            sample_data[sid] = {"df": df, "manifest": manifest, "error": None}
+        except Exception as exc:
+            sample_data[sid] = {"df": None, "manifest": None, "error": f"{type(exc).__name__}: {exc}"}
+
+    # 识别 legacy samples_id（sampling_method == "legacy_holding" 的那个）
+    def _is_legacy_sid(sid: str) -> bool:
+        d = sample_data.get(sid, {})
+        m = d.get("manifest") or {}
+        return str(m.get("sampling_method", "")) == "legacy_holding"
+
+    # 预加载标签 parquet 的关键列（避免重复 IO）
+    # label_meta[sid][label_name] = dict or None on error
+    label_meta: dict[str, dict[str, Any]] = {}
+    for sid in samples_ids:
+        label_meta[sid] = {}
+        for lname in builtin_names:
+            lpath = Path("data") / "labels" / sid / f"{lname}.parquet"
+            if not lpath.exists():
+                label_meta[sid][lname] = None
+                continue
+            try:
+                df_m = pd.read_parquet(
+                    lpath,
+                    columns=["label_name", "label_params_hash", "samples_id", "datebar_fingerprint", "target"],
+                )
+                label_meta[sid][lname] = {"path": lpath, "df_meta": df_m}
+            except Exception as exc:
+                label_meta[sid][lname] = {"path": lpath, "error": f"{type(exc).__name__}: {exc}"}
+
+    # ── A2-01：每个标签文件在每个 samples_id 下都存在 ──
+    try:
+        if not samples_ids:
+            _add_item(items, "A2-01", "label_files_exist_per_samples_id",
+                      "non_empty_samples_id_list", {"count": 0}, False, detail="--samples-id 为空")
+        else:
+            per: dict[str, Any] = {}
+            ok = True
+            for sid in samples_ids:
+                per[sid] = {}
+                for lname in builtin_names:
+                    exists = label_meta[sid].get(lname) is not None
+                    per[sid][lname] = exists
+                    if not exists:
+                        ok = False
+            _add_item(items, "A2-01", "label_files_exist_per_samples_id",
+                      {"builtin_names": builtin_names, "all_exist": True}, per, ok)
+    except Exception as exc:
+        _append_exception_item(items, "A2-01", "label_files_exist_per_samples_id", builtin_names, exc)
+
+    # ── A2-02：每个标签文件列集合 == 设计 §3.2（13 列）──
+    try:
+        per = {}
+        ok = bool(samples_ids and builtin_names)
+        for sid in samples_ids:
+            per[sid] = {}
+            for lname in builtin_names:
+                meta = label_meta[sid].get(lname)
+                if meta is None:
+                    per[sid][lname] = "文件不存在"; ok = False
+                elif "error" in meta:
+                    per[sid][lname] = meta["error"]; ok = False
+                else:
+                    try:
+                        schema = pq.read_schema(meta["path"])
+                        actual_cols = set(schema.names)
+                        if actual_cols == LABEL_REQUIRED_COLS:
+                            per[sid][lname] = "ok"
+                        else:
+                            per[sid][lname] = {
+                                "missing": sorted(LABEL_REQUIRED_COLS - actual_cols),
+                                "extra": sorted(actual_cols - LABEL_REQUIRED_COLS),
+                            }
+                            ok = False
+                    except Exception as e2:
+                        per[sid][lname] = f"schema error: {e2}"; ok = False
+        _add_item(items, "A2-02", "label_columns_match_design",
+                  sorted(LABEL_REQUIRED_COLS), per, ok)
+    except Exception as exc:
+        _append_exception_item(items, "A2-02", "label_columns_match_design", sorted(LABEL_REQUIRED_COLS), exc)
+
+    # ── A2-03：每个标签 rows == 对应 samples.parquet 行数 ──
+    try:
+        per = {}
+        ok = bool(samples_ids and builtin_names)
+        for sid in samples_ids:
+            per[sid] = {}
+            sd = sample_data.get(sid, {})
+            if sd.get("error"):
+                per[sid] = {"samples_error": sd["error"]}; ok = False
+                continue
+            expected_rows = len(sd["df"]) if sd.get("df") is not None else -1
+            for lname in builtin_names:
+                meta = label_meta[sid].get(lname)
+                if meta is None:
+                    per[sid][lname] = "文件不存在"; ok = False
+                elif "error" in meta:
+                    per[sid][lname] = meta["error"]; ok = False
+                else:
+                    actual_rows = len(meta["df_meta"])
+                    per[sid][lname] = {"expected": expected_rows, "actual": actual_rows}
+                    if actual_rows != expected_rows:
+                        ok = False
+        _add_item(items, "A2-03", "label_rows_match_samples_rows",
+                  "label_rows == samples.parquet_rows", per, ok)
+    except Exception as exc:
+        _append_exception_item(items, "A2-03", "label_rows_match_samples_rows", "label_rows==samples_rows", exc)
+
+    # ── A2-04：target 无 ±inf ──
+    try:
+        per = {}
+        ok = bool(samples_ids and builtin_names)
+        for sid in samples_ids:
+            per[sid] = {}
+            for lname in builtin_names:
+                meta = label_meta[sid].get(lname)
+                if meta is None:
+                    per[sid][lname] = "文件不存在"; ok = False
+                elif "error" in meta:
+                    per[sid][lname] = meta["error"]; ok = False
+                else:
+                    target_col = meta["df_meta"]["target"]
+                    inf_count = int(np.isinf(target_col.dropna()).sum())
+                    per[sid][lname] = inf_count
+                    if inf_count != 0:
+                        ok = False
+        _add_item(items, "A2-04", "target_no_inf", {"expected_inf_count": 0}, per, ok)
+    except Exception as exc:
+        _append_exception_item(items, "A2-04", "target_no_inf", 0, exc)
+
+    # ── A2-05：_index.json 每项 params_hash == parquet label_params_hash 列（8 位）──
+    try:
+        per = {}
+        ok = bool(samples_ids and builtin_names)
+        for sid in samples_ids:
+            per[sid] = {}
+            index_path = Path("data") / "labels" / sid / "_index.json"
+            if not index_path.exists():
+                per[sid] = {"_index.json": "不存在"}; ok = False
+                continue
+            try:
+                index_data = _read_json(index_path)
+            except Exception as e2:
+                per[sid] = {"_index.json": f"读取失败: {e2}"}; ok = False
+                continue
+            for lname in builtin_names:
+                meta = label_meta[sid].get(lname)
+                if meta is None:
+                    per[sid][lname] = "文件不存在"; ok = False
+                    continue
+                if "error" in meta:
+                    per[sid][lname] = meta["error"]; ok = False
+                    continue
+                stored_hash = str(index_data.get(lname, {}).get("params_hash", ""))
+                parquet_hashes = meta["df_meta"]["label_params_hash"].unique().tolist()
+                if len(parquet_hashes) != 1:
+                    per[sid][lname] = {"error": f"label_params_hash 列有多个不同值: {parquet_hashes}"}
+                    ok = False
+                else:
+                    parquet_hash = str(parquet_hashes[0])
+                    match = stored_hash == parquet_hash and len(stored_hash) == 8
+                    per[sid][lname] = {"index_hash": stored_hash, "parquet_hash": parquet_hash, "match": match}
+                    if not match:
+                        ok = False
+        _add_item(items, "A2-05", "index_params_hash_matches_parquet",
+                  {"expected": "index==parquet, 8chars"}, per, ok)
+    except Exception as exc:
+        _append_exception_item(items, "A2-05", "index_params_hash_matches_parquet",
+                               "index_hash==parquet_hash", exc)
+
+    # ── A2-06：_index.json 每项 coverage == non_null_rows / rows ──
+    try:
+        per = {}
+        ok = bool(samples_ids and builtin_names)
+        for sid in samples_ids:
+            per[sid] = {}
+            index_path = Path("data") / "labels" / sid / "_index.json"
+            if not index_path.exists():
+                per[sid] = {"_index.json": "不存在"}; ok = False
+                continue
+            try:
+                index_data = _read_json(index_path)
+            except Exception as e2:
+                per[sid] = {"_index.json": f"读取失败: {e2}"}; ok = False
+                continue
+            for lname in builtin_names:
+                entry = index_data.get(lname, {})
+                rows = entry.get("rows")
+                non_null = entry.get("non_null_rows")
+                stored_cov = entry.get("coverage")
+                if rows is None or non_null is None or stored_cov is None:
+                    per[sid][lname] = {"error": f"_index.json 缺字段: {entry}"}
+                    ok = False
+                    continue
+                expected_cov = float(non_null) / float(rows) if int(rows) > 0 else 0.0
+                match = _float_close(float(stored_cov), expected_cov)
+                per[sid][lname] = {
+                    "stored_coverage": stored_cov,
+                    "computed": expected_cov,
+                    "match": match,
+                }
+                if not match:
+                    ok = False
+        _add_item(items, "A2-06", "index_coverage_consistent",
+                  "coverage == non_null_rows / rows", per, ok)
+    except Exception as exc:
+        _append_exception_item(items, "A2-06", "index_coverage_consistent",
+                               "coverage==non_null/rows", exc)
+
+    # ── A2-07：target_holding_return 的 coverage == baseline（仅 legacy 集）──
+    HOLDING_LABEL = "target_holding_return"
+    expected_cov_baseline = baseline.get("labels", {}).get("target_holding_return", {}).get("coverage")
+    try:
+        per = {}
+        ok = True
+        for sid in samples_ids:
+            is_leg = _is_legacy_sid(sid)
+            index_path = Path("data") / "labels" / sid / "_index.json"
+            if not index_path.exists():
+                per[sid] = {"error": "_index.json 不存在"}; ok = False
+                continue
+            try:
+                index_data = _read_json(index_path)
+            except Exception as e2:
+                per[sid] = {"error": f"读取 _index.json 失败: {e2}"}; ok = False
+                continue
+            entry = index_data.get(HOLDING_LABEL, {})
+            actual_cov = entry.get("coverage")
+            if is_leg:
+                if expected_cov_baseline is None:
+                    per[sid] = {"error": "baseline 缺少 coverage 值"}; ok = False
+                elif actual_cov is None:
+                    per[sid] = {"error": "_index.json 缺少 coverage"}; ok = False
+                elif not _float_close(float(actual_cov), float(expected_cov_baseline)):
+                    per[sid] = {
+                        "expected": expected_cov_baseline,
+                        "actual": actual_cov,
+                        "pass": False,
+                    }
+                    ok = False
+                else:
+                    per[sid] = {"expected": expected_cov_baseline, "actual": actual_cov, "pass": True}
+            else:
+                # 非 legacy：不检查 coverage 值，仅记录"不适用"
+                per[sid] = {"note": "不适用（非 legacy 集）", "actual": actual_cov}
+        _add_item(items, "A2-07", "holding_return_coverage_matches_baseline",
+                  expected_cov_baseline, per, ok)
+    except Exception as exc:
+        _append_exception_item(items, "A2-07", "holding_return_coverage_matches_baseline",
+                               expected_cov_baseline, exc)
+
+    # ── A2-08：目录内无孤儿文件、索引内无孤儿条目 ──
+    try:
+        per = {}
+        ok = bool(samples_ids)
+        for sid in samples_ids:
+            labels_dir = Path("data") / "labels" / sid
+            if not labels_dir.exists():
+                per[sid] = {"error": "labels 目录不存在"}; ok = False
+                continue
+            index_path = labels_dir / "_index.json"
+            if not index_path.exists():
+                per[sid] = {"error": "_index.json 不存在"}; ok = False
+                continue
+            try:
+                index_data = _read_json(index_path)
+            except Exception as e2:
+                per[sid] = {"error": f"读取 _index.json 失败: {e2}"}; ok = False
+                continue
+            # Files in directory (parquet only, excluding _index.json)
+            disk_names = {p.stem for p in labels_dir.glob("*.parquet")}
+            index_names = set(index_data.keys())
+            orphan_files = sorted(disk_names - index_names)  # on disk but not in index
+            orphan_entries = sorted(index_names - disk_names)  # in index but not on disk
+            is_ok = not orphan_files and not orphan_entries
+            per[sid] = {
+                "disk": sorted(disk_names),
+                "index": sorted(index_names),
+                "orphan_files": orphan_files,
+                "orphan_entries": orphan_entries,
+            }
+            if not is_ok:
+                ok = False
+        _add_item(items, "A2-08", "no_orphan_files_or_entries",
+                  {"orphan_files": 0, "orphan_entries": 0}, per, ok)
+    except Exception as exc:
+        _append_exception_item(items, "A2-08", "no_orphan_files_or_entries",
+                               {"orphan_files": 0, "orphan_entries": 0}, exc)
+
+    # ── A2-09：每行的 label_name 列 == 文件名 ──
+    try:
+        per = {}
+        ok = bool(samples_ids and builtin_names)
+        for sid in samples_ids:
+            per[sid] = {}
+            for lname in builtin_names:
+                meta = label_meta[sid].get(lname)
+                if meta is None:
+                    per[sid][lname] = "文件不存在"; ok = False
+                elif "error" in meta:
+                    per[sid][lname] = meta["error"]; ok = False
+                else:
+                    unique_vals = meta["df_meta"]["label_name"].unique().tolist()
+                    all_match = len(unique_vals) == 1 and str(unique_vals[0]) == lname
+                    per[sid][lname] = {"unique_values": unique_vals, "match": all_match}
+                    if not all_match:
+                        ok = False
+        _add_item(items, "A2-09", "label_name_column_equals_filename",
+                  "all_rows_label_name==filename", per, ok)
+    except Exception as exc:
+        _append_exception_item(items, "A2-09", "label_name_column_equals_filename",
+                               "label_name==filename", exc)
+
+    # ── A2-10：label_params_hash / samples_id / datebar_fingerprint 列 == manifest 与 _index ──
+    try:
+        per = {}
+        ok = bool(samples_ids and builtin_names)
+        for sid in samples_ids:
+            per[sid] = {}
+            sd = sample_data.get(sid, {})
+            manifest = sd.get("manifest") or {}
+            expected_datebar_fp = str(manifest.get("datebar_fingerprint", ""))
+            index_path = Path("data") / "labels" / sid / "_index.json"
+            if not index_path.exists():
+                per[sid] = {"error": "_index.json 不存在"}; ok = False
+                continue
+            try:
+                index_data = _read_json(index_path)
+            except Exception as e2:
+                per[sid] = {"error": f"读取 _index.json 失败: {e2}"}; ok = False
+                continue
+            for lname in builtin_names:
+                meta = label_meta[sid].get(lname)
+                if meta is None:
+                    per[sid][lname] = "文件不存在"; ok = False
+                    continue
+                if "error" in meta:
+                    per[sid][lname] = meta["error"]; ok = False
+                    continue
+                df_m = meta["df_meta"]
+                # label_params_hash column vs _index
+                index_hash = str(index_data.get(lname, {}).get("params_hash", ""))
+                parquet_hashes = df_m["label_params_hash"].unique().tolist()
+                hash_match = len(parquet_hashes) == 1 and str(parquet_hashes[0]) == index_hash
+                # samples_id column
+                parquet_sids = df_m["samples_id"].unique().tolist()
+                sid_match = len(parquet_sids) == 1 and str(parquet_sids[0]) == sid
+                # datebar_fingerprint column vs manifest
+                parquet_dbs = df_m["datebar_fingerprint"].unique().tolist()
+                db_match = len(parquet_dbs) == 1 and str(parquet_dbs[0]) == expected_datebar_fp
+                all_ok = hash_match and sid_match and db_match
+                per[sid][lname] = {
+                    "hash_match": hash_match,
+                    "sid_match": sid_match,
+                    "datebar_fp_match": db_match,
+                }
+                if not all_ok:
+                    ok = False
+        _add_item(items, "A2-10", "label_metadata_columns_match_manifest_index",
+                  "hash_match and sid_match and db_match", per, ok)
+    except Exception as exc:
+        _append_exception_item(items, "A2-10", "label_metadata_columns_match_manifest_index",
+                               "columns==manifest/_index", exc)
+
+    # ── A2-11：只增不改（verify_v11.py 相对 m1-ok 删除列 == 0，新增列 > 0）──
+    try:
+        rc_m2, _, _ = _run_subprocess(["git", "--no-pager", "rev-parse", "m2-ok"])
+        if rc_m2 == 0:
+            cmd = ["git", "--no-pager", "diff", "--numstat", "m1-ok..m2-ok", "--", "tools/verify_v11.py"]
+        else:
+            cmd = ["git", "--no-pager", "diff", "--numstat", "m1-ok", "--", "tools/verify_v11.py"]
+        rc, stdout, _ = _run_subprocess(cmd)
+        if rc != 0:
+            raise RuntimeError(f"git diff 失败; rc={rc}")
+        parts = stdout.strip().split()
+        additions = int(parts[0]) if len(parts) >= 2 and parts[0].isdigit() else -1
+        deletions = int(parts[1]) if len(parts) >= 2 and parts[1].isdigit() else -1
+        passed = deletions == 0 and additions > 0
+        _add_item(items, "A2-11", "verify_v11_only_additions",
+                  {"deletions": 0, "additions_gt_0": True},
+                  {"raw": stdout, "deletions": deletions, "additions": additions},
+                  passed)
+    except Exception as exc:
+        _append_exception_item(items, "A2-11", "verify_v11_only_additions",
+                               {"deletions": 0, "additions_gt_0": True}, exc)
+
+
 MILESTONE_RUNNERS: dict[str, Any] = {
     "M0": _run_m0_checks,
     "M1": _run_m1_checks,
+    "M2": _run_m2_checks,
     # 后续里程碑在此表中各插入一行，不得修改已有条目
 }
 

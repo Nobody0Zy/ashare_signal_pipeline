@@ -148,7 +148,7 @@ $ver = & $py -c "from pipeline.config import load_params; print(load_params('con
 | `--baseline-git-ref` | M0 是 | 该 baseline 在 M0 修改**之前**的 git 提交 | A0-15 用它取旧 baseline 并保护旧版全部键；读不到该 ref → exit 1（不得 skip） |
 | `--config` | 否 | 本次验收的 YAML，默认 `configs/kernel_v11/check/refactor_check.yaml` | M0⑤、M3②③④ 使用；本机可传 `configs/local/refactor_check.yaml` |
 | `--state-file` | M0、M3–M5 必填 | state JSON 路径或裸名；**可重复** | M0 用于 A0-17 对齐 M0-2 的 full step1 state；M3–M5 走原约束 |
-| `--samples-id` | M1 必填 | 待校验的样本集 ID，**可重复** | 不允许按目录扫描；必须由调用方显式列出 |
+| `--samples-id` | M1 起必填（M2–M5 同样必填） | 待校验的样本集 ID，**可重复** | 不允许按目录扫描；必须由调用方显式列出 |
 | `--output-dir` | M3–M5 必填 | `outputs/<experiment_version>`；**可重复** | 必须与对应 state 内的 `experiment_version` 一致，不一致判 fail |
 | `--report` | 否 | 报告路径，默认 `verify_report.json` | **M<k> 的 Gate 必须显式传 `--report verify_report_M<k>.json`**；任何探索性/临时运行必须传 `--report "$env:TEMP\...json"`，**禁止**用默认值，否则会覆盖里程碑证据 |
 
@@ -459,7 +459,7 @@ if ($LASTEXITCODE -ne 0) { throw "M1 验收未通过" }
 | A1-07 | `params_hash` 重算相等 | 精确（8 位） |
 | A1-08 | `datebar_fingerprint` 重算相等 | 精确 |
 | A1-09 | `samples_set_hash` 重算相等 | 精确（16 位） |
-| A1-10 | `max_samples` 生效时 `rows == max_samples` | 精确；未生效时记录不适用 |
+| A1-10 | `max_samples` 生效时 `rows == max_samples` | 精确；未生效时记录不适用（max_samples 为 null 时本项只做"记录不适用"，**不代表抽样逻辑已验证**；抽样路径由 tests/test_data_prep/test_max_samples.py 覆盖） |
 | A1-11 | `sampling_rate == rows / rows_before_cap` | `ABS_TOL_FLOAT` |
 | A1-12 | 无 `exclude_prefixes` 前缀 | 计数 0（前缀取自 baseline） |
 | A1-13 | 某个样本集的 `(idxs, idxd)` 集合指纹 == `baseline.legacy_holding_samples_set_hash` | 精确 |
@@ -532,6 +532,8 @@ if ($LASTEXITCODE -ne 0) { throw "单测失败" }
 # M2-4 先扩展 verify_v11 支持 M2（仅新增），再跑 Gate
 # M2-4 里程碑 Gate
 & $py tools/verify_v11.py --milestone M2 --baseline $base `
+    --samples-id bollinger_breakout_080c9262_294b0504 `
+    --samples-id legacy_holding_ffa1b970_294b0504 `
     --report verify_report_M2.json
 if ($LASTEXITCODE -ne 0) { throw "M2 验收未通过" }
 ```
