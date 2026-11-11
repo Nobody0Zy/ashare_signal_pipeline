@@ -1,5 +1,67 @@
 [
   {
+    "experiment_version": "kernel_v11/check/kernel_v11_20261102_baseline_384e31d5",
+    "experiment": {
+      "catalog_name": "kernel_v11_check_baseline",
+      "description": "v1.1 refactor baseline regression config for M0 verification.",
+      "base_version": "kernel_v11",
+      "run_date": "20261102",
+      "label": "baseline",
+      "source_config": "configs/local/refactor_check_samples.yaml",
+      "source_config_resolved": "configs/local/refactor_check_samples.yaml",
+      "expected_base_version": "kernel_v11"
+    },
+    "source_config": "configs/local/refactor_check_samples.yaml",
+    "source_config_copy": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/metadata/source_config.yaml",
+    "resolved_params_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/metadata/resolved_params.yaml",
+    "manifest_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/metadata/experiment_manifest.json",
+    "artifact_roots": {
+      "processed_dir": "data/processed/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5",
+      "slices_dir": "data/slices/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5",
+      "ts_features_dir": "data/ts_features/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5",
+      "tsfresh_chunks_dir": "data/tsfresh_chunks/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5",
+      "tsfresh_master_root_dir": "data/tsfresh_master",
+      "features_dir": "data/features/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5",
+      "splits_dir": "data/splits/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5",
+      "models_dir": "models/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5",
+      "output_dir": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5",
+      "metadata_dir": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/metadata",
+      "state_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/metadata/m1_samples_step1.json"
+    },
+    "artifact_files": {
+      "state_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/metadata/m1_samples_step1.json",
+      "prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/predictions_smoke.csv",
+      "test_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/predictions_smoke.csv",
+      "train_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/train_predictions_smoke.csv",
+      "val_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/val_predictions_smoke.csv",
+      "model_file": "models/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/lgb_model_smoke.txt",
+      "train_split_file": "data/splits/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/train_smoke.parquet",
+      "val_split_file": "data/splits/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/val_smoke.parquet",
+      "test_split_file": "data/splits/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/test_smoke.parquet",
+      "selected_features_file": "data/features/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/selected_features_smoke.txt",
+      "model_feature_schema_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/metadata/model_feature_schema_smoke.json",
+      "analysis_report_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/analysis_report.json"
+    },
+    "artifact_files_by_mode": {
+      "smoke": {
+        "state_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/metadata/m1_samples_step1.json",
+        "prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/predictions_smoke.csv",
+        "test_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/predictions_smoke.csv",
+        "train_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/train_predictions_smoke.csv",
+        "val_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/val_predictions_smoke.csv",
+        "model_file": "models/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/lgb_model_smoke.txt",
+        "train_split_file": "data/splits/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/train_smoke.parquet",
+        "val_split_file": "data/splits/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/val_smoke.parquet",
+        "test_split_file": "data/splits/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/test_smoke.parquet",
+        "selected_features_file": "data/features/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/selected_features_smoke.txt",
+        "model_feature_schema_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/metadata/model_feature_schema_smoke.json",
+        "analysis_report_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_384e31d5/analysis_report.json"
+      }
+    },
+    "master_library": {},
+    "latest_run_mode": "smoke"
+  },
+  {
     "experiment_version": "kernel_v11/check/kernel_v11_20261102_baseline_75443d88",
     "experiment": {
       "catalog_name": "kernel_v11_check_baseline",
@@ -76,5 +138,67 @@
     },
     "master_library": {},
     "latest_run_mode": "full"
+  },
+  {
+    "experiment_version": "kernel_v11/check/kernel_v11_20261102_baseline_bf51d415",
+    "experiment": {
+      "catalog_name": "kernel_v11_check_baseline",
+      "description": "v1.1 refactor baseline regression config for M0 verification.",
+      "base_version": "kernel_v11",
+      "run_date": "20261102",
+      "label": "baseline",
+      "source_config": "configs/local/refactor_check.yaml",
+      "source_config_resolved": "configs/local/refactor_check.yaml",
+      "expected_base_version": "kernel_v11"
+    },
+    "source_config": "configs/local/refactor_check.yaml",
+    "source_config_copy": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/metadata/source_config.yaml",
+    "resolved_params_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/metadata/resolved_params.yaml",
+    "manifest_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/metadata/experiment_manifest.json",
+    "artifact_roots": {
+      "processed_dir": "data/processed/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415",
+      "slices_dir": "data/slices/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415",
+      "ts_features_dir": "data/ts_features/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415",
+      "tsfresh_chunks_dir": "data/tsfresh_chunks/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415",
+      "tsfresh_master_root_dir": "data/tsfresh_master",
+      "features_dir": "data/features/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415",
+      "splits_dir": "data/splits/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415",
+      "models_dir": "models/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415",
+      "output_dir": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415",
+      "metadata_dir": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/metadata",
+      "state_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/metadata/m1_old_step1.json"
+    },
+    "artifact_files": {
+      "state_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/metadata/m1_old_step1.json",
+      "prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/predictions_smoke.csv",
+      "test_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/predictions_smoke.csv",
+      "train_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/train_predictions_smoke.csv",
+      "val_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/val_predictions_smoke.csv",
+      "model_file": "models/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/lgb_model_smoke.txt",
+      "train_split_file": "data/splits/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/train_smoke.parquet",
+      "val_split_file": "data/splits/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/val_smoke.parquet",
+      "test_split_file": "data/splits/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/test_smoke.parquet",
+      "selected_features_file": "data/features/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/selected_features_smoke.txt",
+      "model_feature_schema_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/metadata/model_feature_schema_smoke.json",
+      "analysis_report_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/analysis_report.json"
+    },
+    "artifact_files_by_mode": {
+      "smoke": {
+        "state_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/metadata/m1_old_step1.json",
+        "prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/predictions_smoke.csv",
+        "test_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/predictions_smoke.csv",
+        "train_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/train_predictions_smoke.csv",
+        "val_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/val_predictions_smoke.csv",
+        "model_file": "models/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/lgb_model_smoke.txt",
+        "train_split_file": "data/splits/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/train_smoke.parquet",
+        "val_split_file": "data/splits/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/val_smoke.parquet",
+        "test_split_file": "data/splits/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/test_smoke.parquet",
+        "selected_features_file": "data/features/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/selected_features_smoke.txt",
+        "model_feature_schema_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/metadata/model_feature_schema_smoke.json",
+        "analysis_report_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/analysis_report.json"
+      }
+    },
+    "master_library": {},
+    "latest_run_mode": "smoke"
   }
 ]

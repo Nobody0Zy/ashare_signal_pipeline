@@ -47,6 +47,13 @@ def _clean_datebar(paths: Paths) -> pd.DataFrame:
 
 
 def compute_step1(paths: Paths, mode: str, params: PipelineParams) -> Dict[str, object]:
+    # M1 守卫：samples 模式在 M4 双模式实现前显式拒绝，避免静默走旧路径
+    if getattr(getattr(params, "input", None), "mode", "holding_file") == "samples":
+        raise NotImplementedError(
+            "input.mode=samples 尚未实现（M4 才开放）；"
+            "请使用 input.mode=holding_file 或等待 M4 双模式完成。"
+            "如需生成 samples 产物，请先运行 tools/build_samples.py。"
+        )
     del mode
     holding = _clean_holding(paths, params)
     holding_path = paths.processed_dir / "holding_clean.parquet"

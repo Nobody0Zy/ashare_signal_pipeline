@@ -567,8 +567,379 @@ def _run_m0_checks(args: argparse.Namespace, baseline: dict[str, Any], items: li
         _append_exception_item(items, "A0-18", "legacy_hash_recomputed", baseline.get("legacy_holding_samples_set_hash"), exc)
 
 
+def _run_m1_checks(args: argparse.Namespace, baseline: dict[str, Any], items: list[dict[str, Any]]) -> None:
+    """M1 断言 A1-01…A1-16：samples 层结构验证。"""
+    import numpy as np
+
+    samples_ids: list[str] = args.samples_id
+
+    EXPECTED_COLS = {
+        "sample_id", "idxs", "idxd", "open", "high", "low", "close",
+        "volume", "amount", "is_paused", "marks", "sampling_method",
+        "sampling_params_hash", "datebar_fingerprint", "created_at",
+    }
+    MANIFEST_17_KEYS = {
+        "samples_id", "sampling_method", "sampling_params", "params_hash",
+        "datebar_fingerprint", "samples_set_hash", "universe", "date_range",
+        "min_history_days", "max_samples", "rows_before_cap", "sampling_rate",
+        "year_quota", "rows", "n_symbols", "created_at", "code_version",
+    }
+
+    # Preload all sample data
+    sample_data: dict[str, dict[str, Any]] = {}
+    for sid in samples_ids:
+        try:
+            parquet_path = Path("data") / "prepared" / sid / "samples.parquet"
+            manifest_path = Path("data") / "prepared" / sid / "manifest.json"
+            df = pd.read_parquet(parquet_path)
+            manifest = _read_json(manifest_path)
+            sample_data[sid] = {"df": df, "manifest": manifest, "error": None}
+        except Exception as exc:
+            sample_data[sid] = {"df": None, "manifest": None, "error": f"{type(exc).__name__}: {exc}"}
+
+    # A1-01: column set == EXPECTED_COLS
+    try:
+        per = {}
+        ok = bool(samples_ids)
+        for sid, d in sample_data.items():
+            if d["error"]:
+                per[sid] = {"error": d["error"]}; ok = False
+            else:
+                actual = set(d["df"].columns.tolist())
+                if actual != EXPECTED_COLS:
+                    per[sid] = sorted(actual); ok = False
+                else:
+                    per[sid] = "ok"
+        _add_item(items, "A1-01", "samples_columns_match_design", sorted(EXPECTED_COLS),
+                  "all_ok" if ok else per, ok)
+    except Exception as exc:
+        _append_exception_item(items, "A1-01", "samples_columns_match_design", sorted(EXPECTED_COLS), exc)
+
+    # A1-02: no target*/label* columns
+    try:
+        per = {}
+        ok = bool(samples_ids)
+        for sid, d in sample_data.items():
+            if d["error"]:
+                per[sid] = {"error": d["error"]}; ok = False
+            else:
+                bad = [c for c in d["df"].columns if re.match(r"^(target|label)", c)]
+                per[sid] = bad
+                if bad:
+                    ok = False
+        _add_item(items, "A1-02", "samples_no_target_label_columns", 0,
+                  {sid: len(v) for sid, v in per.items() if isinstance(v, list)}, ok,
+                  detail=str({sid: v for sid, v in per.items() if isinstance(v, list) and v}))
+    except Exception as exc:
+        _append_exception_item(items, "A1-02", "samples_no_target_label_columns", 0, exc)
+
+    # A1-03: sample_id dtype == int64
+    try:
+        per = {}
+        ok = bool(samples_ids)
+        for sid, d in sample_data.items():
+            if d["error"]:
+                per[sid] = {"error": d["error"]}; ok = False
+            else:
+                dtype_str = str(d["df"]["sample_id"].dtype) if "sample_id" in d["df"].columns else "missing"
+                per[sid] = dtype_str
+                if dtype_str != "int64":
+                    ok = False
+        _add_item(items, "A1-03", "sample_id_dtype_int64", "int64", per, ok)
+    except Exception as exc:
+        _append_exception_item(items, "A1-03", "sample_id_dtype_int64", "int64", exc)
+
+    # A1-04: sample_id unique
+    try:
+        per = {}
+        ok = bool(samples_ids)
+        for sid, d in sample_data.items():
+            if d["error"]:
+                per[sid] = {"error": d["error"]}; ok = False
+            elif "sample_id" not in d["df"].columns:
+                per[sid] = "missing_column"; ok = False
+            else:
+                n = len(d["df"]); u = d["df"]["sample_id"].nunique()
+                per[sid] = {"len": n, "nunique": u}
+                if n != u:
+                    ok = False
+        _add_item(items, "A1-04", "sample_id_unique", "nunique==len", per, ok)
+    except Exception as exc:
+        _append_exception_item(items, "A1-04", "sample_id_unique", "nunique==len", exc)
+
+    # A1-05: sample_id strictly ascending
+    try:
+        per = {}
+        ok = bool(samples_ids)
+        for sid, d in sample_data.items():
+            if d["error"]:
+                per[sid] = {"error": d["error"]}; ok = False
+            elif "sample_id" not in d["df"].columns:
+                per[sid] = "missing_column"; ok = False
+            else:
+                ids = d["df"]["sample_id"]
+                asc = True if len(ids) <= 1 else bool((ids.diff().dropna() > 0).all())
+                per[sid] = "ok" if asc else "not_ascending"
+                if not asc:
+                    ok = False
+        _add_item(items, "A1-05", "sample_id_strictly_ascending", "diff()>0_all", per, ok)
+    except Exception as exc:
+        _append_exception_item(items, "A1-05", "sample_id_strictly_ascending", "diff()>0_all", exc)
+
+    # A1-06: manifest contains 17 required keys
+    try:
+        per = {}
+        ok = bool(samples_ids)
+        for sid, d in sample_data.items():
+            if d["error"]:
+                per[sid] = {"error": d["error"]}; ok = False
+            else:
+                mkeys = set(d["manifest"].keys()) if d["manifest"] else set()
+                missing = sorted(MANIFEST_17_KEYS - mkeys)
+                per[sid] = missing if missing else "ok"
+                if missing:
+                    ok = False
+        _add_item(items, "A1-06", "manifest_contains_17_keys", sorted(MANIFEST_17_KEYS), per, ok)
+    except Exception as exc:
+        _append_exception_item(items, "A1-06", "manifest_contains_17_keys", sorted(MANIFEST_17_KEYS), exc)
+
+    # A1-07: params_hash recomputed == stored (8 chars)
+    try:
+        per = {}
+        ok = bool(samples_ids)
+        for sid, d in sample_data.items():
+            if d["error"]:
+                per[sid] = {"error": d["error"]}; ok = False
+            else:
+                m = d["manifest"]
+                hash_input = {
+                    "method": m.get("sampling_method"),
+                    "params": m.get("sampling_params"),
+                    "universe": m.get("universe"),
+                    "date_range": m.get("date_range"),
+                    "min_history_days": m.get("min_history_days"),
+                    "max_samples": m.get("max_samples"),
+                }
+                canonical = json.dumps(hash_input, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+                computed = hashlib.sha256(canonical.encode()).hexdigest()[:8]
+                stored = m.get("params_hash", "")
+                per[sid] = {"computed": computed, "stored": stored}
+                if computed != stored:
+                    ok = False
+        _add_item(items, "A1-07", "params_hash_recomputed", "computed==stored_8chars", per, ok)
+    except Exception as exc:
+        _append_exception_item(items, "A1-07", "params_hash_recomputed", "computed==stored_8chars", exc)
+
+    # A1-08: datebar_fingerprint == reconstructed from baseline sha256 + probe stats
+    try:
+        bl_datebar = baseline.get("raw", {}).get("datebar", {})
+        sha_prefix = str(bl_datebar.get("sha256", ""))[:12]
+        probe = _read_json(Path("version_design/design/refactor/datebar_probe.json"))
+        expected_fp = (
+            f"{sha_prefix}_{probe['rows']}_{probe['min_idxd']}_{probe['max_idxd']}_{probe['n_symbols']}"
+        )
+        per = {}
+        ok = bool(samples_ids)
+        for sid, d in sample_data.items():
+            if d["error"]:
+                per[sid] = {"error": d["error"]}; ok = False
+            else:
+                stored_fp = d["manifest"].get("datebar_fingerprint", "")
+                per[sid] = {"stored": stored_fp}
+                if stored_fp != expected_fp:
+                    ok = False
+        _add_item(items, "A1-08", "datebar_fingerprint_matches", expected_fp, per, ok)
+    except Exception as exc:
+        _append_exception_item(items, "A1-08", "datebar_fingerprint_matches", "reconstructed_fp", exc)
+
+    # A1-09: samples_set_hash recomputed == stored (16 chars)
+    try:
+        per = {}
+        ok = bool(samples_ids)
+        for sid, d in sample_data.items():
+            if d["error"]:
+                per[sid] = {"error": d["error"]}; ok = False
+            elif "sample_id" not in d["df"].columns:
+                per[sid] = "missing_column"; ok = False
+            else:
+                sid_arr = d["df"]["sample_id"].to_numpy().astype("<i8")
+                computed = hashlib.sha256(np.sort(sid_arr).tobytes()).hexdigest()[:16]
+                stored = d["manifest"].get("samples_set_hash", "")
+                per[sid] = {"computed": computed, "stored": stored}
+                if computed != stored:
+                    ok = False
+        _add_item(items, "A1-09", "samples_set_hash_recomputed", "computed==stored_16chars", per, ok)
+    except Exception as exc:
+        _append_exception_item(items, "A1-09", "samples_set_hash_recomputed", "computed==stored_16chars", exc)
+
+    # A1-10: max_samples effective → rows == max_samples; not effective → "不适用" (must still record item)
+    try:
+        per = {}
+        ok = True
+        for sid, d in sample_data.items():
+            if d["error"]:
+                per[sid] = {"error": d["error"]}; ok = False
+            else:
+                m = d["manifest"]
+                max_s = m.get("max_samples")
+                rows = m.get("rows", 0)
+                rows_bc = m.get("rows_before_cap", 0)
+                if max_s is not None and rows_bc > 0:
+                    effective = int(rows) == int(max_s)
+                    per[sid] = {"rows": rows, "max_samples": max_s, "effective": True, "match": effective}
+                    if not effective:
+                        ok = False
+                else:
+                    per[sid] = {"rows": rows, "max_samples": None, "effective": False, "note": "不适用"}
+        _add_item(items, "A1-10", "max_samples_cap_effective", None, per, ok)
+    except Exception as exc:
+        _append_exception_item(items, "A1-10", "max_samples_cap_effective", None, exc)
+
+    # A1-11: sampling_rate == rows / rows_before_cap (or 1.0 when no cap)
+    try:
+        per = {}
+        ok = bool(samples_ids)
+        for sid, d in sample_data.items():
+            if d["error"]:
+                per[sid] = {"error": d["error"]}; ok = False
+            else:
+                m = d["manifest"]
+                rows_bc = m.get("rows_before_cap", 0)
+                rows = m.get("rows", 0)
+                sr = float(m.get("sampling_rate", 1.0))
+                expected_sr = float(rows) / float(rows_bc) if rows_bc > 0 else 1.0
+                rate_ok = _float_close(sr, expected_sr)
+                per[sid] = {"sampling_rate": sr, "expected": expected_sr}
+                if not rate_ok:
+                    ok = False
+        _add_item(items, "A1-11", "sampling_rate_consistent", "rows/rows_before_cap", per, ok)
+    except Exception as exc:
+        _append_exception_item(items, "A1-11", "sampling_rate_consistent", "rows/rows_before_cap", exc)
+
+    # A1-12: no excluded_prefixes in idxs (from baseline.data_prep.universe)
+    try:
+        excl = baseline.get("data_prep", {}).get("universe", {}).get("exclude_prefixes", [])
+        per = {}
+        ok = bool(samples_ids)
+        for sid, d in sample_data.items():
+            if d["error"]:
+                per[sid] = {"error": d["error"]}; ok = False
+            elif "idxs" not in d["df"].columns:
+                per[sid] = "missing_column"; ok = False
+            else:
+                bad = int(sum(d["df"]["idxs"].str.startswith(p).sum() for p in excl))
+                per[sid] = bad
+                if bad > 0:
+                    ok = False
+        _add_item(items, "A1-12", "no_excluded_prefix_in_idxs",
+                  {"exclude_prefixes": excl, "expected_count": 0}, per, ok)
+    except Exception as exc:
+        _append_exception_item(items, "A1-12", "no_excluded_prefix_in_idxs",
+                                {"exclude_prefixes": "baseline.data_prep.universe.exclude_prefixes"}, exc)
+
+    # A1-13: exactly one sample set's (idxs, idxd) fingerprint == legacy hash
+    try:
+        legacy_hash = str(baseline.get("legacy_holding_samples_set_hash", ""))
+        per = {}
+        matched: list[str] = []
+        for sid, d in sample_data.items():
+            if d["error"]:
+                per[sid] = {"error": d["error"]}
+            elif "idxs" in d["df"].columns and "idxd" in d["df"].columns:
+                fp_str = "\n".join(sorted(
+                    f"{a},{int(b)}" for a, b in zip(d["df"]["idxs"], d["df"]["idxd"])
+                ))
+                fp = hashlib.sha256(fp_str.encode("utf-8")).hexdigest()[:16]
+                per[sid] = fp
+                if fp == legacy_hash:
+                    matched.append(sid)
+            else:
+                per[sid] = "missing_columns"
+        exactly_one = len(matched) == 1
+        _add_item(items, "A1-13", "exactly_one_legacy_fingerprint_match",
+                  {"legacy_hash": legacy_hash, "expected_count": 1},
+                  {"fingerprints": per, "matched": matched}, exactly_one)
+    except Exception as exc:
+        _append_exception_item(items, "A1-13", "exactly_one_legacy_fingerprint_match",
+                                {"legacy_hash": baseline.get("legacy_holding_samples_set_hash")}, exc)
+
+    # A1-14: sample_id <-> (idxs, idxd) bijection (vectorized decode)
+    try:
+        P14, P8, P6 = 10 ** 14, 10 ** 8, 10 ** 6
+        MPREFIX = {1: "sh", 2: "sz", 3: "bj"}
+        per = {}
+        ok = bool(samples_ids)
+        for sid, d in sample_data.items():
+            if d["error"]:
+                per[sid] = {"error": d["error"]}; ok = False
+            elif not {"sample_id", "idxs", "idxd"}.issubset(d["df"].columns):
+                per[sid] = "missing_columns"; ok = False
+            else:
+                sids_arr = d["df"]["sample_id"].to_numpy()
+                market_arr = sids_arr // P14
+                code6_arr = (sids_arr // P8) % P6
+                idxd_dec = sids_arr % P8
+                decoded_idxs = np.array(
+                    [f"{MPREFIX.get(int(m), 'unknown')}{int(c):06d}"
+                     for m, c in zip(market_arr, code6_arr)]
+                )
+                actual_idxs = d["df"]["idxs"].to_numpy()
+                actual_idxd = d["df"]["idxd"].to_numpy().astype(np.int64)
+                row_mismatch = int(((decoded_idxs != actual_idxs) | (idxd_dec != actual_idxd)).sum())
+                per[sid] = {"mismatches": row_mismatch, "total": len(d["df"])}
+                if row_mismatch > 0:
+                    ok = False
+        _add_item(items, "A1-14", "sample_id_idxs_idxd_bijection", "0_mismatches", per, ok)
+    except Exception as exc:
+        _append_exception_item(items, "A1-14", "sample_id_idxs_idxd_bijection", "0_mismatches", exc)
+
+    # A1-15: verify_v11.py only additions vs m0-ok (delete col == 0, add col > 0)
+    try:
+        rc_m1, _, _ = _run_subprocess(["git", "--no-pager", "rev-parse", "m1-ok"])
+        if rc_m1 == 0:
+            cmd = ["git", "--no-pager", "diff", "--numstat", "m0-ok..m1-ok", "--", "tools/verify_v11.py"]
+        else:
+            cmd = ["git", "--no-pager", "diff", "--numstat", "m0-ok", "--", "tools/verify_v11.py"]
+        rc, stdout, _ = _run_subprocess(cmd)
+        if rc != 0:
+            raise RuntimeError(f"git diff 失败; rc={rc}")
+        parts = stdout.strip().split()
+        additions = int(parts[0]) if len(parts) >= 2 and parts[0].isdigit() else -1
+        deletions = int(parts[1]) if len(parts) >= 2 and parts[1].isdigit() else -1
+        passed = deletions == 0 and additions > 0
+        _add_item(items, "A1-15", "verify_v11_only_additions",
+                  {"deletions": 0, "additions_gt_0": True},
+                  {"raw": stdout, "deletions": deletions, "additions": additions}, passed)
+    except Exception as exc:
+        _append_exception_item(items, "A1-15", "verify_v11_only_additions",
+                                {"deletions": 0, "additions_gt_0": True}, exc)
+
+    # A1-16: at least 2 --samples-id; exactly one fingerprint == legacy hash
+    try:
+        count = len(samples_ids)
+        at_least_2 = count >= 2
+        legacy_hash_16 = str(baseline.get("legacy_holding_samples_set_hash", ""))
+        matched_count = 0
+        for sid, d in sample_data.items():
+            if d.get("error"):
+                continue
+            df = d["df"]
+            if "idxs" in df.columns and "idxd" in df.columns:
+                fp_str = "\n".join(sorted(f"{a},{int(b)}" for a, b in zip(df["idxs"], df["idxd"])))
+                if hashlib.sha256(fp_str.encode("utf-8")).hexdigest()[:16] == legacy_hash_16:
+                    matched_count += 1
+        passed = at_least_2 and matched_count == 1
+        _add_item(items, "A1-16", "samples_id_list_valid",
+                  {"min_count": 2, "legacy_hash_matches": 1},
+                  {"count": count, "legacy_matches": matched_count}, passed)
+    except Exception as exc:
+        _append_exception_item(items, "A1-16", "samples_id_list_valid",
+                                {"min_count": 2, "legacy_hash_matches": 1}, exc)
+
+
 MILESTONE_RUNNERS: dict[str, Any] = {
     "M0": _run_m0_checks,
+    "M1": _run_m1_checks,
     # 后续里程碑在此表中各插入一行，不得修改已有条目
 }
 

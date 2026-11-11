@@ -118,6 +118,8 @@ class Paths:
     state_file: Path
     resolved_master_library_version: str
     master_library_role: str
+    prepared_root_dir: Path
+    labels_root_dir: Path
 
 
 def build_paths(root: Path, state_file: str, params: "PipelineParams") -> Paths:
@@ -149,6 +151,8 @@ def build_paths(root: Path, state_file: str, params: "PipelineParams") -> Paths:
         state_file=_resolve_state_file_path(root, state_file, experiment_version),
         resolved_master_library_version=master_library_version,
         master_library_role=str(params.tsfresh.master_library_role),
+        prepared_root_dir=_resolve_raw_path(root, params.data.prepared_dir),
+        labels_root_dir=_resolve_raw_path(root, params.data.labels_dir),
     )
 
 
@@ -202,6 +206,8 @@ class RawDataParams:
 
     holding_file: str = "data/raw/holding_stats_all.parquet"
     datebar_file: str = "data/raw/dateBar.pkl"
+    prepared_dir: str = "data/prepared"
+    labels_dir: str = "data/labels"
 
 
 @dataclass
@@ -394,6 +400,71 @@ class EvalParams:
     pred_group_q: int = 5
 
 
+# ─── v1.1 新增配置段 ──────────────────────────────────────────────────────────
+
+@dataclass
+class InputParams:
+    mode: str = "holding_file"  # "holding_file" | "samples"
+
+
+@dataclass
+class TargetParams:
+    source: str = "holding_return"  # "holding_return" | "label_file"
+    label: str = ""
+    horizon_days: int = 0
+    samples_id: str = "auto"
+    on_missing_samples: str = "error"
+    on_missing_label: str = "error"
+
+
+@dataclass
+class UniverseParams:
+    exclude_prefixes: List[str] = field(default_factory=lambda: ["sh000", "sz399", "sh950"])
+    min_history_days: int = 60
+
+
+@dataclass
+class SampleBuildParams:
+    method: str = "bollinger_breakout"
+    params: Dict[str, float] = field(default_factory=lambda: {"ma_period": 20.0, "std_mult": 2.0})
+    max_samples: Optional[int] = None
+
+
+@dataclass
+class LabelBuildParams:
+    drop_blocked_entries: bool = True
+    params: Dict[str, Dict[str, object]] = field(
+        default_factory=lambda: {
+            "future_return": {"horizons": [5, 10, 20, 40]},
+            "trend_quality": {"horizon": 20},
+        }
+    )
+
+
+@dataclass
+class DataPrepParams:
+    date_range_start: Optional[int] = None
+    date_range_end: Optional[int] = None
+    universe: UniverseParams = field(default_factory=UniverseParams)
+    samples: SampleBuildParams = field(default_factory=SampleBuildParams)
+    labels: LabelBuildParams = field(default_factory=LabelBuildParams)
+
+    @classmethod
+    def _from_dict(cls, raw: dict) -> "DataPrepParams":
+        universe_raw = raw.get("universe", {})
+        samples_raw = raw.get("samples", {})
+        labels_raw = raw.get("labels", {})
+        return cls(
+            date_range_start=raw.get("date_range_start"),
+            date_range_end=raw.get("date_range_end"),
+            universe=UniverseParams(**(universe_raw if isinstance(universe_raw, dict) else {})),
+            samples=SampleBuildParams(**(samples_raw if isinstance(samples_raw, dict) else {})),
+            labels=LabelBuildParams(**(labels_raw if isinstance(labels_raw, dict) else {})),
+        )
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 @dataclass
 class PipelineParams:
     seed: int = 42
@@ -411,6 +482,10 @@ class PipelineParams:
     lgb: LightGBMParams = field(default_factory=LightGBMParams)
     eval: EvalParams = field(default_factory=EvalParams)
     experiment: ExperimentParams = field(default_factory=ExperimentParams)
+    # v1.1 新增字段（带默认值，旧配置零改动可加载）
+    input: InputParams = field(default_factory=InputParams)
+    target: TargetParams = field(default_factory=TargetParams)
+    data_prep: DataPrepParams = field(default_factory=DataPrepParams)
 
     @classmethod
     def from_dict(cls, raw: Dict[str, object]) -> "PipelineParams":
@@ -428,6 +503,9 @@ class PipelineParams:
             "lgb": LightGBMParams,
             "eval": EvalParams,
             "experiment": ExperimentParams,
+            # v1.1 新增（InputParams / TargetParams 均为纯 primitive 字段，标准构造即可）
+            "input": InputParams,
+            "target": TargetParams,
         }
         # 兜底：兼容尚未更新的旧配置文件
         if isinstance(raw, dict):
@@ -451,6 +529,9 @@ class PipelineParams:
         for key in ["seed", "smoke_size"]:
             if isinstance(raw, dict) and key in raw:
                 kwargs[key] = raw[key]
+        # v1.1：DataPrepParams 含双层嵌套，单独处理
+        dp_raw = raw.get("data_prep", {}) if isinstance(raw, dict) else {}
+        kwargs["data_prep"] = DataPrepParams._from_dict(dp_raw if isinstance(dp_raw, dict) else {})
         _validate_params(kwargs)
         return cls(**kwargs)
 
