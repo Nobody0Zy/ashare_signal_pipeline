@@ -520,7 +520,7 @@ invalid_reasons = {"unknown_symbol": 0, "date_not_in_symbol_range": 0,
 
 **现有形态**：不存在。
 
-**目标形态**：严格按 `implementation_plan.md` §2.3 实现。
+**目标形态**：M0 只实现 M0 表（`_run_m0_checks`）；M<k> 在自己的里程碑内实现 M<k> 表，见 §2.3 与 §1.3「只增不改」。整体结构严格按 `implementation_plan.md` §2.3 实现。
 
 | 项 | 规定 |
 | :--- | :--- |

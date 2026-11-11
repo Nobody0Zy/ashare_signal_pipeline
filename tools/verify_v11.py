@@ -567,6 +567,12 @@ def _run_m0_checks(args: argparse.Namespace, baseline: dict[str, Any], items: li
         _append_exception_item(items, "A0-18", "legacy_hash_recomputed", baseline.get("legacy_holding_samples_set_hash"), exc)
 
 
+MILESTONE_RUNNERS: dict[str, Any] = {
+    "M0": _run_m0_checks,
+    # 后续里程碑在此表中各插入一行，不得修改已有条目
+}
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="v1.1 里程碑验收脚本。")
     parser.add_argument("--milestone", required=True, choices=MILESTONES)
@@ -607,15 +613,18 @@ def main() -> int:
     if not parameter_error and args.milestone == "M0" and not args.baseline_git_ref.strip():
         parameter_error = "M0 需要 --baseline-git-ref"
 
-    if not parameter_error and args.milestone != "M0":
-        parameter_error = f"{args.milestone} 尚未在 M0 阶段实现"
+    if not parameter_error and args.milestone not in MILESTONE_RUNNERS:
+        parameter_error = (
+            f"{args.milestone} 尚未实现"
+            f"（已实现：{sorted(MILESTONE_RUNNERS)}）"
+        )
 
     if parameter_error:
         _add_item(items, "P-01", "parameter_error", "valid_parameters", {"error": parameter_error}, False)
         exit_code = 2
     else:
         assert baseline is not None
-        _run_m0_checks(args, baseline, items)
+        MILESTONE_RUNNERS[args.milestone](args, baseline, items)
         if len(items) == 0:
             _add_item(items, "A0-00", "non_empty_items_required", "at_least_one_item", {"items": 0}, False)
         failed = [item["id"] for item in items if not item["pass"]]
