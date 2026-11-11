@@ -166,10 +166,10 @@
       "models_dir": "models/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415",
       "output_dir": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415",
       "metadata_dir": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/metadata",
-      "state_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/metadata/m1_old_step1.json"
+      "state_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/metadata/m3_old_step1.json"
     },
     "artifact_files": {
-      "state_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/metadata/m1_old_step1.json",
+      "state_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/metadata/m3_old_step1.json",
       "prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/predictions_smoke.csv",
       "test_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/predictions_smoke.csv",
       "train_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/train_predictions_smoke.csv",
@@ -184,7 +184,7 @@
     },
     "artifact_files_by_mode": {
       "smoke": {
-        "state_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/metadata/m1_old_step1.json",
+        "state_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/metadata/m3_old_step1.json",
         "prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/predictions_smoke.csv",
         "test_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/predictions_smoke.csv",
         "train_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_bf51d415/train_predictions_smoke.csv",

@@ -1347,10 +1347,340 @@ def _run_m2_checks(args: argparse.Namespace, baseline: dict[str, Any], items: li
                                {"deletions": 0, "additions_gt_0": True}, exc)
 
 
+def _run_m3_checks(args: argparse.Namespace, baseline: dict[str, Any], items: list[dict[str, Any]]) -> None:
+    import re as _re
+
+    # ── A3-01：越界检查（git diff --name-only HEAD 只含白名单或豁免路径）──
+    try:
+        _M3_WHITELIST = {
+            "pipeline/config.py",
+            "pipeline/adapters/sample_family.py",
+            "pipeline/step2_slices.py",
+            "tools/check_raw_data.py",
+            "docs/15_data_contract.md",
+            "tests/test_pipeline/test_config_v11.py",
+            "tests/test_pipeline/test_step1_guard.py",
+            "tools/verify_v11.py",
+            # M3-6 运行 pipeline 会重写此文件；不计越界但必须随本里程碑提交
+            "outputs/experiment_registry.json",
+        }
+
+        def _m3_exempt(path: str) -> bool:
+            # version_design/design/refactor/: M3 本里程碑可能修设计文档，显式豁免
+            return path.startswith("version_design/design/refactor/")
+
+        rc_diff, diff_out, _ = _run_subprocess(["git", "--no-pager", "diff", "--name-only", "HEAD"])
+        changed = {f.strip() for f in diff_out.splitlines() if f.strip()}
+        out_of_whitelist = sorted(f for f in changed if f not in _M3_WHITELIST and not _m3_exempt(f))
+        exempted = sorted(f for f in changed if _m3_exempt(f))
+        _add_item(
+            items, "A3-01", "whitelist_check",
+            {"whitelist": sorted(_M3_WHITELIST), "exempt_prefixes": ["version_design/design/refactor/"]},
+            {"changed": sorted(changed), "out_of_whitelist": out_of_whitelist, "exempted": exempted},
+            len(out_of_whitelist) == 0,
+            detail=f"越界文件: {out_of_whitelist}" if out_of_whitelist else "",
+        )
+    except Exception as exc:
+        _append_exception_item(items, "A3-01", "whitelist_check", "M3_whitelist", exc)
+
+    # ── A3-02：旧配置 input.mode == "holding_file" ──
+    try:
+        code = (
+            "import json,sys;"
+            "from pipeline.config import load_params;"
+            "p=load_params(sys.argv[1]);"
+            "print(json.dumps({'mode': p.input.mode, 'source': p.target.source}))"
+        )
+        rc, stdout, stderr = _run_subprocess([sys.executable, "-c", code, args.config])
+        if rc != 0:
+            raise RuntimeError(f"load_params 失败; rc={rc}; stderr={stderr[:300]}")
+        payload = json.loads(stdout)
+        mode = payload.get("mode", "")
+        passed = mode == "holding_file"
+        _add_item(items, "A3-02", "old_config_holding_file_mode",
+                  {"mode": "holding_file"}, payload, passed,
+                  detail="" if passed else f"mode={mode!r}")
+    except Exception as exc:
+        _append_exception_item(items, "A3-02", "old_config_holding_file_mode", {"mode": "holding_file"}, exc)
+
+    # ── A3-03：samples 配置 load_params 成功（exit 0）──
+    try:
+        cfg_path = Path(args.config)
+        samples_config = str(cfg_path.parent / (cfg_path.stem + "_samples" + cfg_path.suffix))
+        code = (
+            "import json,sys;"
+            "from pipeline.config import load_params;"
+            "p=load_params(sys.argv[1]);"
+            # 输出 JSON 到 stdout；V11 警告已输出到 stderr，不污染 JSON
+            "print(json.dumps({"
+            "'mode': p.input.mode, 'source': p.target.source,"
+            "'label': p.target.label, 'horizon_days': p.target.horizon_days"
+            "}))"
+        )
+        rc, stdout, stderr = _run_subprocess([sys.executable, "-c", code, samples_config])
+        if rc != 0:
+            raise RuntimeError(f"samples 配置被拒绝; rc={rc}; stderr={stderr[:400]}")
+        # stdout 应为纯 JSON（警告已重定向到 stderr）
+        payload = json.loads(stdout.strip())
+        _add_item(items, "A3-03", "samples_config_loads_successfully",
+                  {"exit_code": 0}, {"exit_code": rc, "config": samples_config, "result": payload},
+                  rc == 0)
+    except Exception as exc:
+        _append_exception_item(items, "A3-03", "samples_config_loads_successfully", {"exit_code": 0}, exc)
+
+    # ── A3-04：测试文件同时引用 input.mode/samples 与 NotImplementedError（代理断言）──
+    try:
+        test_files = [
+            Path("tests/test_pipeline/test_config_v11.py"),
+            Path("tests/test_pipeline/test_step1_guard.py"),
+        ]
+        hits: list[str] = []
+        for tf in test_files:
+            if tf.exists():
+                content = tf.read_text(encoding="utf-8")
+                has_mode_or_samples = (
+                    "input.mode" in content
+                    or '"samples"' in content
+                    or "'samples'" in content
+                )
+                has_not_impl = "NotImplementedError" in content
+                if has_mode_or_samples and has_not_impl:
+                    hits.append(str(tf))
+        passed = len(hits) >= 1
+        _add_item(items, "A3-04", "test_files_reference_samples_and_not_implemented",
+                  {"min_hits": 1, "patterns": ["input.mode/samples", "NotImplementedError"]},
+                  {"hits": hits, "files_checked": [str(tf) for tf in test_files]},
+                  passed,
+                  detail="未发现引用 samples 与 NotImplementedError 的测试文件" if not passed else "")
+    except Exception as exc:
+        _append_exception_item(items, "A3-04", "test_files_reference_samples_and_not_implemented",
+                               {"min_hits": 1}, exc)
+
+    # ── A3-05：check_raw_data --config <args.config> 返回 0 ──
+    try:
+        rc, stdout, stderr = _run_subprocess(
+            [sys.executable, "tools/check_raw_data.py", "--config", args.config]
+        )
+        _add_item(items, "A3-05", "check_raw_data_exits_0",
+                  {"exit_code": 0},
+                  {"exit_code": rc, "stdout": stdout[:400], "stderr": stderr[:200]},
+                  rc == 0)
+    except Exception as exc:
+        _append_exception_item(items, "A3-05", "check_raw_data_exits_0", {"exit_code": 0}, exc)
+
+    # ── A3-06：SAMPLES_REQUIRED_COLUMNS / LABEL_REQUIRED_COLUMNS 存在且非空且元素为 str ──
+    try:
+        code = (
+            "import json,sys;"
+            "from pipeline.adapters.sample_family import SAMPLES_REQUIRED_COLUMNS, LABEL_REQUIRED_COLUMNS;"
+            "print(json.dumps({"
+            "'samples_cols': list(SAMPLES_REQUIRED_COLUMNS),"
+            "'label_cols': list(LABEL_REQUIRED_COLUMNS)"
+            "}))"
+        )
+        rc, stdout, stderr = _run_subprocess([sys.executable, "-c", code])
+        if rc != 0:
+            raise RuntimeError(f"导入失败: rc={rc}; stderr={stderr[:300]}")
+        payload = json.loads(stdout)
+        sc = payload.get("samples_cols", [])
+        lc = payload.get("label_cols", [])
+        sc_ok = len(sc) > 0 and all(isinstance(x, str) for x in sc)
+        lc_ok = len(lc) > 0 and all(isinstance(x, str) for x in lc)
+        passed = sc_ok and lc_ok
+        _add_item(items, "A3-06", "contract_columns_exported",
+                  {"SAMPLES_REQUIRED_COLUMNS": "non_empty_str_tuple",
+                   "LABEL_REQUIRED_COLUMNS": "non_empty_str_tuple"},
+                  {"samples_cols_count": len(sc), "label_cols_count": len(lc),
+                   "sc_ok": sc_ok, "lc_ok": lc_ok},
+                  passed)
+    except Exception as exc:
+        _append_exception_item(items, "A3-06", "contract_columns_exported",
+                               {"SAMPLES_REQUIRED_COLUMNS": "non_empty",
+                                "LABEL_REQUIRED_COLUMNS": "non_empty"}, exc)
+
+    # ── A3-07：step2 invalid_reasons 含且仅含 4 个新键，不含 missing_signal_date ──
+    try:
+        step2_path = Path("pipeline/step2_slices.py")
+        step2_content = step2_path.read_text(encoding="utf-8") if step2_path.exists() else ""
+        required_keys = frozenset({"unknown_symbol", "date_not_in_symbol_range",
+                                   "paused_signal_date", "insufficient_history"})
+        forbidden_keys = frozenset({"missing_signal_date"})
+        lines_a7 = step2_content.splitlines()
+        init_blocks: list[str] = []
+        for i, line in enumerate(lines_a7):
+            if _re.search(r'\binvalid_reasons\s*=\s*\{', line):
+                block = line
+                depth = line.count("{") - line.count("}")
+                j = i + 1
+                while depth > 0 and j < len(lines_a7):
+                    block += " " + lines_a7[j]
+                    depth += lines_a7[j].count("{") - lines_a7[j].count("}")
+                    j += 1
+                init_blocks.append(block)
+
+        def _extract_keys(block: str) -> frozenset:
+            found = set(_re.findall(r'"(\w+)"\s*:', block))
+            found |= set(_re.findall(r"'(\w+)'\s*:", block))
+            return frozenset(found)
+
+        all_blocks_exact = all(_extract_keys(b) == required_keys for b in init_blocks)
+        has_forbidden = any(_extract_keys(b) & forbidden_keys for b in init_blocks)
+        passed = len(init_blocks) >= 1 and all_blocks_exact and not has_forbidden
+        _add_item(items, "A3-07", "step2_invalid_reasons_renamed",
+                  {"required_keys": sorted(required_keys), "forbidden": sorted(forbidden_keys)},
+                  {"init_blocks_count": len(init_blocks), "has_forbidden": has_forbidden,
+                   "all_blocks_exact": all_blocks_exact},
+                  passed)
+    except Exception as exc:
+        _append_exception_item(items, "A3-07", "step2_invalid_reasons_renamed",
+                               {"required_keys": sorted({"unknown_symbol", "date_not_in_symbol_range",
+                                                         "paused_signal_date", "insufficient_history"})}, exc)
+
+    # ── A3-08：docs/15_data_contract.md 存在且含内置采样与内置标签两节 ──
+    try:
+        doc_path = Path("docs/15_data_contract.md")
+        exists = doc_path.exists()
+        has_sampling_section = False
+        has_labels_section = False
+        if exists:
+            doc_text = doc_path.read_text(encoding="utf-8")
+            has_sampling_section = "内置采样" in doc_text
+            has_labels_section = "内置标签" in doc_text
+        passed = exists and has_sampling_section and has_labels_section
+        _add_item(items, "A3-08", "data_contract_doc_exists",
+                  {"exists": True, "内置采样_section": True, "内置标签_section": True},
+                  {"exists": exists, "内置采样_section": has_sampling_section,
+                   "内置标签_section": has_labels_section},
+                  passed)
+    except Exception as exc:
+        _append_exception_item(items, "A3-08", "data_contract_doc_exists",
+                               {"exists": True, "sections": ["内置采样", "内置标签"]}, exc)
+
+    # ── A3-09：data_prep/**/*.py 中无 import pipeline / from pipeline ──
+    try:
+        data_prep_path = Path("data_prep")
+        hits_a9: list[str] = []
+        if data_prep_path.exists():
+            for py_file in sorted(data_prep_path.rglob("*.py")):
+                try:
+                    file_content = py_file.read_text(encoding="utf-8", errors="replace")
+                    for lineno, line in enumerate(file_content.splitlines(), 1):
+                        if _re.match(r'\s*(import pipeline|from pipeline)', line):
+                            hits_a9.append(f"{py_file}:{lineno}: {line.strip()}")
+                except Exception:
+                    pass
+        _add_item(items, "A3-09", "data_prep_no_pipeline_import",
+                  {"expected_hits": 0},
+                  {"hits": hits_a9},
+                  len(hits_a9) == 0,
+                  detail="; ".join(hits_a9[:5]) if hits_a9 else "")
+    except Exception as exc:
+        _append_exception_item(items, "A3-09", "data_prep_no_pipeline_import",
+                               {"expected_hits": 0}, exc)
+
+    # ── A3-10：build_samples.py / build_labels.py 无 yaml.safe_load 实际调用──
+    # 检查非注释、非 docstring 行中是否有 yaml.safe_load(
+    try:
+        tools_to_check = ["tools/build_samples.py", "tools/build_labels.py"]
+        hits_a10: list[str] = []
+        for tool_path in tools_to_check:
+            tp = Path(tool_path)
+            if tp.exists():
+                in_docstring = False
+                for lineno, line in enumerate(tp.read_text(encoding="utf-8").splitlines(), 1):
+                    stripped = line.strip()
+                    # 简单 docstring 跟踪（三引号对）
+                    if stripped.startswith('"""') or stripped.startswith("'''"):
+                        quote = stripped[:3]
+                        # count occurrences in the line (open/close pairs)
+                        q_count = stripped.count(quote)
+                        if q_count % 2 == 1:  # odd → toggle docstring state
+                            in_docstring = not in_docstring
+                        continue
+                    if in_docstring:
+                        continue
+                    # Skip comment lines
+                    if stripped.startswith("#"):
+                        continue
+                    # Check for actual call: yaml.safe_load(
+                    if "yaml.safe_load(" in line:
+                        hits_a10.append(f"{tool_path}:{lineno}: {line.strip()}")
+        _add_item(items, "A3-10", "build_tools_no_yaml_safe_load_calls",
+                  {"expected_hits": 0, "note": "docstring/comment mentions excluded"},
+                  {"hits": hits_a10, "files_checked": tools_to_check},
+                  len(hits_a10) == 0,
+                  detail="; ".join(hits_a10[:5]) if hits_a10 else "")
+    except Exception as exc:
+        _append_exception_item(items, "A3-10", "build_tools_no_yaml_safe_load_calls",
+                               {"expected_hits": 0}, exc)
+
+    # ── A3-11：verify_v11 只增不改（m2-ok 基线，删除列 == 0，新增列 > 0）──
+    try:
+        rc_m3ok, _, _ = _run_subprocess(["git", "--no-pager", "rev-parse", "m3-ok"])
+        if rc_m3ok == 0:
+            cmd = ["git", "--no-pager", "diff", "--numstat", "m2-ok..m3-ok", "--", "tools/verify_v11.py"]
+        else:
+            cmd = ["git", "--no-pager", "diff", "--numstat", "m2-ok", "--", "tools/verify_v11.py"]
+        rc, stdout, _ = _run_subprocess(cmd)
+        if rc != 0:
+            raise RuntimeError(f"git diff 失败; rc={rc}")
+        parts = stdout.strip().split()
+        additions = int(parts[0]) if len(parts) >= 2 and parts[0].isdigit() else -1
+        deletions = int(parts[1]) if len(parts) >= 2 and parts[1].isdigit() else -1
+        passed = deletions == 0 and additions > 0
+        _add_item(items, "A3-11", "verify_v11_only_additions_m2_base",
+                  {"deletions": 0, "additions_gt_0": True},
+                  {"raw": stdout, "deletions": deletions, "additions": additions},
+                  passed)
+    except Exception as exc:
+        _append_exception_item(items, "A3-11", "verify_v11_only_additions_m2_base",
+                               {"deletions": 0, "additions_gt_0": True}, exc)
+
+    # ── A3-12：旧路径 step1 数值未变（需要 --state-file）──
+    try:
+        if not args.state_file:
+            raise RuntimeError("未提供 --state-file，A3-12 判 fail（§5 任务要求）")
+        step1_state: dict[str, Any] | None = None
+        for sf in args.state_file:
+            try:
+                p = Path(sf)
+                if not p.is_absolute():
+                    p = Path.cwd() / p
+                if p.exists():
+                    candidate = _read_json(p)
+                    if isinstance(candidate.get("steps"), dict) and "step_1" in candidate["steps"]:
+                        step1_state = candidate
+                        break
+            except Exception:
+                pass
+        if step1_state is None:
+            raise RuntimeError(f"在 state_files={args.state_file!r} 中未找到含 step_1 的有效状态文件")
+        step1_details = step1_state["steps"]["step_1"]["details"]
+        actual_sc = step1_details.get("sample_count")
+        actual_dr = step1_details.get("datebar_rows")
+        smoke_bl = baseline.get("smoke", {})
+        expected_sc = smoke_bl.get("step1_sample_count")
+        expected_dr = smoke_bl.get("step1_datebar_rows")
+        sc_ok = actual_sc == expected_sc
+        dr_ok = actual_dr == expected_dr
+        passed = sc_ok and dr_ok
+        _add_item(items, "A3-12", "step1_values_unchanged_from_baseline",
+                  {"step1_sample_count": expected_sc, "step1_datebar_rows": expected_dr},
+                  {"step1_sample_count": actual_sc, "step1_datebar_rows": actual_dr},
+                  passed,
+                  detail=(f"sample_count {actual_sc}!={expected_sc}; " if not sc_ok else "")
+                         + (f"datebar_rows {actual_dr}!={expected_dr}" if not dr_ok else ""))
+    except Exception as exc:
+        _append_exception_item(items, "A3-12", "step1_values_unchanged_from_baseline",
+                               {"step1_sample_count": baseline.get("smoke", {}).get("step1_sample_count"),
+                                "step1_datebar_rows": baseline.get("smoke", {}).get("step1_datebar_rows")}, exc)
+
+
 MILESTONE_RUNNERS: dict[str, Any] = {
     "M0": _run_m0_checks,
     "M1": _run_m1_checks,
     "M2": _run_m2_checks,
+    "M3": _run_m3_checks,
     # 后续里程碑在此表中各插入一行，不得修改已有条目
 }
 

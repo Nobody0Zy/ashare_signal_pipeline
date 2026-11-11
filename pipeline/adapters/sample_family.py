@@ -29,6 +29,42 @@ DATEBAR_REQUIRED_COLUMNS = (
     "paused",
 )
 
+# samples.parquet 契约（data_prep/build_samples.py 生成的 15 列）
+SAMPLES_REQUIRED_COLUMNS = (
+    "sample_id",
+    "idxs",
+    "idxd",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "amount",
+    "is_paused",
+    "marks",
+    "sampling_method",
+    "sampling_params_hash",
+    "datebar_fingerprint",
+    "created_at",
+)
+
+# labels/*.parquet 契约（data_prep/labels/base.py LABEL_REQUIRED_COLUMNS 对应的 13 列）
+LABEL_REQUIRED_COLUMNS = (
+    "sample_id",
+    "idxs",
+    "signal_date",
+    "target",
+    "entry_idxd",
+    "exit_idxd",
+    "is_complete",
+    "is_entry_blocked",
+    "label_name",
+    "label_params_hash",
+    "samples_id",
+    "datebar_fingerprint",
+    "created_at",
+)
+
 
 @dataclass(frozen=True)
 class RawArtifactContract:
@@ -87,7 +123,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     if args.show_contract:
-        print(json.dumps(RawArtifactContract().to_dict(), ensure_ascii=False, indent=2))
+        contract = RawArtifactContract().to_dict()
+        contract["samples_required_columns"] = list(SAMPLES_REQUIRED_COLUMNS)
+        contract["label_required_columns"] = list(LABEL_REQUIRED_COLUMNS)
+        print(json.dumps(contract, ensure_ascii=False, indent=2))
     return 0
 
 

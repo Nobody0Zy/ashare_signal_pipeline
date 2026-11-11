@@ -598,6 +598,11 @@ def _validate_params(kwargs: Dict[str, object]) -> None:
     monitoring = kwargs.get("monitoring")
     indicators = kwargs.get("indicators")
     lgb = kwargs.get("lgb")
+    # v1.1 新增参数
+    input_params = kwargs.get("input")    # InputParams
+    target_params = kwargs.get("target")  # TargetParams
+    data_prep_params = kwargs.get("data_prep")  # DataPrepParams
+    manual_features = kwargs.get("manual_features")  # ManualFeatureParams
 
     if isinstance(window, WindowParams) and isinstance(time_split, TimeSplitParams):
         if time_split.enforce_buffer and time_split.buffer_trading_days < window.lookback_days:
@@ -654,6 +659,221 @@ def _validate_params(kwargs: Dict[str, object]) -> None:
                 )
             if indicators.profile == "v3_enriched":
                 raise ValueError("skip_indicators=true 与 profile=v3_enriched 互斥")
+
+    # ── V1–V14：v1.1 新增校验规则 ────────────────────────────────────────────
+
+    # V1：input.mode / target.source 合法值
+    _VALID_INPUT_MODES = {"holding_file", "samples"}
+    _VALID_TARGET_SOURCES = {"holding_return", "label_file"}
+    if isinstance(input_params, InputParams):
+        if input_params.mode not in _VALID_INPUT_MODES:
+            raise ValueError(
+                f"input.mode={input_params.mode!r} 非法，仅允许 {sorted(_VALID_INPUT_MODES)}"
+            )
+    if isinstance(target_params, TargetParams):
+        if target_params.source not in _VALID_TARGET_SOURCES:
+            raise ValueError(
+                f"target.source={target_params.source!r} 非法，仅允许 {sorted(_VALID_TARGET_SOURCES)}"
+            )
+
+    # V2：holding_file 模式约束
+    if isinstance(input_params, InputParams) and isinstance(target_params, TargetParams):
+        if input_params.mode == "holding_file":
+            if target_params.source == "label_file":
+                raise ValueError(
+                    "holding_file 模式不支持 target.source=label_file；"
+                    "如需使用外部标签，请设置 input.mode=samples"
+                )
+            if target_params.source == "holding_return" and str(target_params.label).strip():
+                raise ValueError(
+                    "holding_file + holding_return 模式下 target.label 必须为空"
+                )
+
+    # V3：label_file 时的约束
+    if isinstance(target_params, TargetParams) and target_params.source == "label_file":
+        if not (isinstance(input_params, InputParams) and input_params.mode == "samples"):
+            raise ValueError(
+                "target.source=label_file 要求 input.mode=samples（反向不成立）"
+            )
+        if not str(target_params.label).strip():
+            raise ValueError(
+                "target.source=label_file 时 target.label 不能为空"
+            )
+        if target_params.on_missing_samples == "build":
+            raise ValueError(
+                "v1.1 中 on_missing_samples=build 未支持；"
+                "请先运行 tools/build_samples.py 生成样本集后再运行 pipeline"
+            )
+        if target_params.on_missing_label == "build":
+            raise ValueError(
+                "v1.1 中 on_missing_label=build 未支持；"
+                "请先运行 tools/build_labels.py 生成标签后再运行 pipeline"
+            )
+
+    # V4：target.label 经 resolve_label 解析，horizon 对齐
+    _target_horizon: Optional[int] = None
+    if isinstance(target_params, TargetParams) and str(target_params.label).strip():
+        try:
+            import data_prep.labels  # noqa: F401 触发注册
+            from data_prep.labels.registry import resolve_label as _resolve_label
+            defn, _name_params, _horizon = _resolve_label(target_params.label)
+            _target_horizon = _horizon
+        except ValueError as exc:
+            raise ValueError(
+                f"target.label={target_params.label!r} 解析失败：{exc}"
+            ) from exc
+        if _target_horizon is not None:
+            if target_params.horizon_days != _target_horizon:
+                raise ValueError(
+                    f"target.horizon_days={target_params.horizon_days} 与 label 解析值 "
+                    f"{_target_horizon} 不一致（label={target_params.label!r}）"
+                )
+        else:
+            if target_params.horizon_days != 0:
+                raise ValueError(
+                    f"target.horizon_days={target_params.horizon_days} 须为 0（label={target_params.label!r} 无前视跨度）"
+                )
+
+    # V5：缓冲带须覆盖 max(lookback_days, horizon_days)
+    if isinstance(time_split, TimeSplitParams) and isinstance(window, WindowParams):
+        _horizon_days = int(
+            getattr(target_params, "horizon_days", 0)
+            if isinstance(target_params, TargetParams) else 0
+        )
+        _min_buffer = max(window.lookback_days, _horizon_days)
+        if time_split.enforce_buffer and time_split.buffer_trading_days < _min_buffer:
+            raise ValueError(
+                f"buffer_trading_days ({time_split.buffer_trading_days}) 须 >= "
+                f"max(lookback_days={window.lookback_days}, horizon_days={_horizon_days})={_min_buffer}"
+            )
+
+    # V6：universe.min_history_days >= window.lookback_days（仅 samples 模式下校验，因为 min_history_days 仅用于样本生成）
+    if (isinstance(input_params, InputParams) and input_params.mode == "samples"
+            and isinstance(data_prep_params, DataPrepParams) and isinstance(window, WindowParams)):
+        if data_prep_params.universe.min_history_days < window.lookback_days:
+            raise ValueError(
+                f"data_prep.universe.min_history_days ({data_prep_params.universe.min_history_days}) "
+                f"须 >= window.lookback_days ({window.lookback_days})"
+            )
+
+    # V7：samples.method ∈ 注册表；params 值均为正数
+    if isinstance(data_prep_params, DataPrepParams):
+        try:
+            import data_prep.samples.events  # noqa: F401 触发注册
+            from data_prep.samples.registry import get_sample as _get_sample
+            _get_sample(data_prep_params.samples.method)
+        except ValueError as exc:
+            raise ValueError(
+                f"data_prep.samples.method={data_prep_params.samples.method!r} 未在注册表中：{exc}"
+            ) from exc
+        for _pname, _pval in (data_prep_params.samples.params or {}).items():
+            if isinstance(_pval, (int, float)) and not isinstance(_pval, bool):
+                if _pval <= 0:
+                    raise ValueError(
+                        f"data_prep.samples.params.{_pname}={_pval} 须为正数"
+                    )
+
+    # V8：samples_id != auto 时格式匹配且等于推导值
+    if isinstance(target_params, TargetParams) and target_params.samples_id != "auto":
+        _sid = target_params.samples_id
+        if not re.fullmatch(r"^[a-z0-9_]+$", _sid):
+            raise ValueError(
+                f"target.samples_id={_sid!r} 不匹配 ^[a-z0-9_]+$（仅允许小写字母、数字、下划线）"
+            )
+        # 条件性等于推导值校验（需要 datebar 文件）
+        if isinstance(data, RawDataParams) and isinstance(data_prep_params, DataPrepParams):
+            _datebar_path = Path(str(data.datebar_file).strip())
+            if _datebar_path.exists():
+                try:
+                    from data_prep.ids import derive_datebar_fingerprint, derive_samples_id, canonical_json
+                    _dp = data_prep_params
+                    _universe_hash = {
+                        "exclude_prefixes": list(_dp.universe.exclude_prefixes),
+                        "min_history_days": _dp.universe.min_history_days,
+                    }
+                    _hash_input = {
+                        "method": _dp.samples.method,
+                        "params": _dp.samples.params,
+                        "universe": _universe_hash,
+                        "date_range": {"start": _dp.date_range_start, "end": _dp.date_range_end},
+                        "min_history_days": _dp.universe.min_history_days,
+                        "max_samples": _dp.samples.max_samples,
+                    }
+                    _params_hash = hashlib.sha256(
+                        canonical_json(_hash_input).encode("utf-8")
+                    ).hexdigest()[:8]
+                    _datebar_fp = derive_datebar_fingerprint(_datebar_path)
+                    _derived_id = derive_samples_id(_dp.samples.method, _params_hash, _datebar_fp)
+                    if _sid != _derived_id:
+                        raise ValueError(
+                            f"target.samples_id={_sid!r} 与推导值 {_derived_id!r} 不一致"
+                        )
+                except ImportError:
+                    pass  # data_prep 不可用时跳过等于检查
+
+    # V10：legacy_holding 时 max_holding_days 必须为 null
+    if isinstance(data_prep_params, DataPrepParams) and isinstance(kwargs.get("sample_filter"), SampleFilterParams):
+        if data_prep_params.samples.method == "legacy_holding":
+            _sf = kwargs["sample_filter"]
+            if _sf.max_holding_days is not None:
+                raise ValueError(
+                    "samples.method=legacy_holding 时 sample_filter.max_holding_days 必须为 null"
+                    "（否则样本集与旧路径不再等价，M1 验收 #6 必然失败）"
+                )
+
+    # V11：samples 模式下 include_signal_date_selection_score=true → 加载期警告（stderr，不影响 stdout JSON）
+    if isinstance(input_params, InputParams) and isinstance(manual_features, ManualFeatureParams):
+        if input_params.mode == "samples" and manual_features.include_signal_date_selection_score:
+            import sys as _sys
+            print(
+                "警告：input.mode=samples 下 include_signal_date_selection_score=true，"
+                "该特征（signal_date_selection_score）在 samples 路径中不可得，step5 将跳过它。",
+                file=_sys.stderr,
+            )
+
+    # V12：registry 中每个标签定义的 spec_version >= 1
+    try:
+        import data_prep.labels  # noqa: F401 触发注册（若 V4 已导入则复用缓存）
+        from data_prep.labels import registry as _lr_mod
+        for _lp, _ldefn in list(_lr_mod._REGISTRY.items()):
+            _sv = getattr(_ldefn, "spec_version", None)
+            if not (isinstance(_sv, int) and _sv >= 1):
+                raise ValueError(
+                    f"标签定义 {_lp!r} 的 spec_version={_sv!r} 须为 >= 1 的整数"
+                )
+    except ImportError:
+        pass  # data_prep 不可用时跳过
+
+    # V13：input.mode=samples + target.source=holding_return → label 必须为空；on_missing_label 只允许 error
+    if isinstance(input_params, InputParams) and isinstance(target_params, TargetParams):
+        if input_params.mode == "samples" and target_params.source == "holding_return":
+            if str(target_params.label).strip():
+                raise ValueError(
+                    "input.mode=samples + target.source=holding_return 时 target.label 必须为空"
+                    "（step1 自动使用内置 target_holding_return 标签）"
+                )
+            if target_params.on_missing_label == "build":
+                raise ValueError(
+                    "v1.1 中 on_missing_label=build 未支持；"
+                    "请先运行 tools/build_labels.py 生成 target_holding_return 标签"
+                )
+
+    # V14：legacy_holding 时 max_samples / date_range_start / date_range_end 必须全为 null
+    if isinstance(data_prep_params, DataPrepParams):
+        if data_prep_params.samples.method == "legacy_holding":
+            if data_prep_params.samples.max_samples is not None:
+                raise ValueError(
+                    "samples.method=legacy_holding 时 data_prep.samples.max_samples 必须为 null"
+                    "（否则样本集与旧路径不再相等）"
+                )
+            if data_prep_params.date_range_start is not None:
+                raise ValueError(
+                    "samples.method=legacy_holding 时 data_prep.date_range_start 必须为 null"
+                )
+            if data_prep_params.date_range_end is not None:
+                raise ValueError(
+                    "samples.method=legacy_holding 时 data_prep.date_range_end 必须为 null"
+                )
 
 
 def load_params(yaml_path: str) -> PipelineParams:
