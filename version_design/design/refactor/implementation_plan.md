@@ -33,7 +33,7 @@ M5  收尾与发布                                  文档 + registry + 归档 
 | M2 | M1 | `data/prepared/{samples_id}/samples.parquet` + `manifest.json` | 标签无处对齐 `sample_id`，行契约不可验 |
 | M3 | M1, M2 | `data_prep` 两层可导入、`data/labels/**` 已生成 | `check_raw_data` 的 `prepared` 段与 V4/V7/V13/V14 无可校验对象 |
 | M4 | M1, M2, M3 | 标签产物、V1–V14 校验、`SAMPLES_REQUIRED_COLUMNS` / `LABEL_REQUIRED_COLUMNS` | 双模式会绕过校验，行为变化无兜底（§7.3） |
-| M5 | M0–M4 全部 exit 0 | 每步 `verify_report.json` 与本地 tag | 发布 Gate 无法判定（§7 M5） |
+| M5 | M0–M4 全部 exit 0 | 每步 `verify_report_M<k>.json` 与本地 tag | 发布 Gate 无法判定（§7 M5） |
 
 ### 0.2 判定权
 
@@ -148,8 +148,9 @@ $ver = & $py -c "from pipeline.config import load_params; print(load_params('con
 | `--baseline-git-ref` | M0 是 | 该 baseline 在 M0 修改**之前**的 git 提交 | A0-15 用它取旧 baseline 并保护旧版全部键；读不到该 ref → exit 1（不得 skip） |
 | `--config` | 否 | 本次验收的 YAML，默认 `configs/kernel_v11/check/refactor_check.yaml` | M0⑤、M3②③④ 使用；本机可传 `configs/local/refactor_check.yaml` |
 | `--state-file` | M0、M3–M5 必填 | state JSON 路径或裸名；**可重复** | M0 用于 A0-17 对齐 M0-2 的 full step1 state；M3–M5 走原约束 |
+| `--samples-id` | M1 必填 | 待校验的样本集 ID，**可重复** | 不允许按目录扫描；必须由调用方显式列出 |
 | `--output-dir` | M3–M5 必填 | `outputs/<experiment_version>`；**可重复** | 必须与对应 state 内的 `experiment_version` 一致，不一致判 fail |
-| `--report` | 否 | 报告路径，默认 `verify_report.json`（仓库根） | 只写这一个文件 |
+| `--report` | 否 | 报告路径，默认 `verify_report.json` | **M<k> 的 Gate 必须显式传 `--report verify_report_M<k>.json`**；任何探索性/临时运行必须传 `--report "$env:TEMP\...json"`，**禁止**用默认值，否则会覆盖里程碑证据 |
 
 `--state-file` / `--output-dir` 必须是**可重复**参数：M4 需要同时验收旧路径（L1/L3）与新路径（samples smoke）两份 state，二者 `experiment_version` 不同。未显式给出 `--output-dir` 时按 state 的 `experiment_version` 反推，但该反推只是容错路径，M3–M5 的验收命令必须显式传。
 
@@ -204,7 +205,10 @@ $ver = & $py -c "from pipeline.config import load_params; print(load_params('con
 3. 禁止 `try/except` 吞异常：捕获后必须转成一条 `pass=false` 的 item。
 4. `expected` 只能来自 baseline / 契约常量；**代码中不得出现观测值数字字面量**。容差允许写成命名常量（`REL_TOL_PROBE = 0.01`、`ABS_TOL_FLOAT = 1e-12`），它们是规则而不是观测值。
 5. 比较规则：计数用精确相等；浮点用 `abs(a-b) <= ABS_TOL_FLOAT * max(1, abs(b))`；比例/规模用相对误差 `<= REL_TOL_PROBE`。
-6. 只读：禁止写除 `verify_report.json` 以外的任何文件。
+6. 只读：禁止写除 `--report` 指定路径以外的任何文件。
+
+> **报告留档规则**：每个里程碑的 Gate 固定产出 `verify_report_M<k>.json`（仓库根，已 gitignore）。
+> M<k> 的 Gate 必须是该里程碑**最后一次** verify 运行；任何在其之后的探索性运行必须写到 `$env:TEMP`。
 
 #### 2.3.5 §8.1「逐里程碑检查项」逐条映射（六张表；M0 只实现 M0 表）
 
@@ -233,6 +237,7 @@ $ver = & $py -c "from pipeline.config import load_params; print(load_params('con
 | ⑤ `max_samples` 生效时 `rows == max_samples` 且 `sampling_rate == rows / rows_before_cap` | A1-10 / A1-11 | 从 manifest 读 `max_samples`；未生效（`null`/0）时该项判「预期不适用」但必须记 item（`expected = null`），不得省略 |
 | ⑥ 无 `sh000` / `sz399` / `sh950` 前缀 | A1-12 | 前缀列表来自 `baseline.data_prep.universe.exclude_prefixes` |
 | ⑦ `legacy_holding` 的 `(idxs, idxd)` 集合指纹 == baseline | A1-13 / A1-14 | 对每个发现的样本集重算 §8.3 指纹，要求**至少一个**等于 baseline；同时校验 `sample_id` 与 `(idxs, idxd)` 双射 |
+| （补充）显式样本集清单与 legacy 指纹匹配 | A1-16 | `--samples-id` 至少 2 个（否则 fail）；其中恰有一个的集合指纹 == baseline.legacy_holding_samples_set_hash |
 
 **M2**
 
@@ -304,7 +309,8 @@ if ($LASTEXITCODE -ne 0) { throw "旧样本集指纹计算失败" }
 
 # M0-4 基线就绪自检（a170d67 = baseline 纳入版本控制时的提交，供 A0-15 防篡改比对）
 & $py tools/verify_v11.py --milestone M0 --baseline $base --baseline-git-ref a170d67 `
-    --state-file "outputs/$ver/metadata/m0_legacy_step1.json"
+    --state-file "outputs/$ver/metadata/m0_legacy_step1.json" `
+    --report verify_report_M0.json
 if ($LASTEXITCODE -ne 0) { throw "M0 验收未通过" }
 
 # M0-5 入库配置的就绪检查（data/raw 为空 → 2 属预期；已就绪 → 0）
@@ -432,7 +438,9 @@ if ($LASTEXITCODE -ne 1) { throw "M1 守卫未生效：期望 exit 1" }
 
 # M1-8 先扩展 verify_v11 支持 M1（仅新增），再跑 Gate
 # M1-8 里程碑 Gate
-& $py tools/verify_v11.py --milestone M1 --baseline $base
+& $py tools/verify_v11.py --milestone M1 --baseline $base `
+    --samples-id $sid_bol --samples-id $sid_leg `
+    --report verify_report_M1.json
 if ($LASTEXITCODE -ne 0) { throw "M1 验收未通过" }
 ```
 
@@ -457,6 +465,7 @@ if ($LASTEXITCODE -ne 0) { throw "M1 验收未通过" }
 | A1-13 | 某个样本集的 `(idxs, idxd)` 集合指纹 == `baseline.legacy_holding_samples_set_hash` | 精确 |
 | A1-14 | `sample_id` 与 `(idxs, idxd)` 双射（解码后逐行相等） | 精确 |
 | A1-15 | verify_v11 只增不改：基准 `m0-ok`；比较对象优先 `m1-ok`（若存在），否则工作树；`git diff --numstat <基准> [<目标>] -- tools/verify_v11.py` 删除列 == 0 且新增列 > 0 | 删除列精确 0 |
+| A1-16 | M1 Gate 必须收到显式样本集清单：`--samples-id` 至少 2 个；未提供时判 fail，不得回退到扫描 `data/prepared/*`；其中恰有一个样本集的 `(idxs, idxd)` 集合指纹 == `baseline.legacy_holding_samples_set_hash`（即 legacy 集），其余样本集必须满足全部结构断言 | 计数 ≥ 2；指纹精确匹配 1 个 |
 
 ### 3.5 回滚点
 
@@ -522,7 +531,8 @@ if ($LASTEXITCODE -ne 0) { throw "单测失败" }
 
 # M2-4 先扩展 verify_v11 支持 M2（仅新增），再跑 Gate
 # M2-4 里程碑 Gate
-& $py tools/verify_v11.py --milestone M2 --baseline $base
+& $py tools/verify_v11.py --milestone M2 --baseline $base `
+    --report verify_report_M2.json
 if ($LASTEXITCODE -ne 0) { throw "M2 验收未通过" }
 ```
 
@@ -609,7 +619,8 @@ if ($LASTEXITCODE -ne 0) { throw "单测失败" }
 $ver = & $py -c "from pipeline.config import load_params; print(load_params('configs/local/refactor_check.yaml').build_experiment_version())"
 & $py tools/verify_v11.py --milestone M3 --baseline $base `
     --config configs/local/refactor_check.yaml `
-    --state-file "outputs/$ver/metadata/m3_old_step1.json" --output-dir "outputs/$ver"
+    --state-file "outputs/$ver/metadata/m3_old_step1.json" --output-dir "outputs/$ver" `
+    --report verify_report_M3.json
 if ($LASTEXITCODE -ne 0) { throw "M3 验收未通过" }
 ```
 
@@ -722,7 +733,8 @@ Pop-Location
     --state-file "outputs/$ver_old/metadata/m4_l1_full.json" `
     --state-file "outputs/$ver_old/metadata/m4_l3_smoke.json" `
     --state-file "outputs/$ver_new/metadata/m4_new_smoke.json" `
-    --output-dir "outputs/$ver_old" --output-dir "outputs/$ver_new"
+    --output-dir "outputs/$ver_old" --output-dir "outputs/$ver_new" `
+    --report verify_report_M4.json
 if ($LASTEXITCODE -ne 0) { throw "M4 验收未通过" }
 ```
 
@@ -848,7 +860,8 @@ git tag -a v1.1.0 -m "v1.1.0: decouple samples from labels"
 # M5-6 从归档路径跑 Gate
 & $py version_design/design/refactor/verify_v11.py --milestone M5 --baseline $base `
     --config $cfg_release `
-    --state-file "outputs/$ver_rel/metadata/pipeline_state_m5_release_smoke.json" --output-dir "outputs/$ver_rel"
+    --state-file "outputs/$ver_rel/metadata/pipeline_state_m5_release_smoke.json" --output-dir "outputs/$ver_rel" `
+    --report verify_report_M5.json
 if ($LASTEXITCODE -ne 0) { throw "M5 验收未通过" }
 ```
 
@@ -983,7 +996,7 @@ M4 的 Gate 只要求 smoke 口径（口径 B）；口径 A 由阶段 0 实验�
 
 只有以下六条**同时**成立，v1.1.0 才算完成（这是唯一的完成定义；不设「部分完成」）：
 
-1. **每个里程碑的 Gate 都留下 `exit 0` 记录**：M0–M5 各自的 `verify_report.json` 存在，且 `exit_code == 0`（M5 用归档路径运行）。
+1. **每个里程碑的 Gate 都留下 exit 0 记录**：仓库根存在 M0–M5 六份 `verify_report_M<k>.json`，每份的 `milestone` 与文件名一致、`exit_code == 0`（M5 用归档路径运行）。
 2. **旧路径逐值未变**：L1（full step1）的 `sample_count` / `datebar_rows` / `target_stats`，L2（worktree 逐值）的切片与特征，L3（smoke 全链）的全部字段，均与 `baseline_v1.0.13.json` 一致（计数精确、浮点 1e-12）。
 3. **新路径可用**：`input.mode=samples` 的 smoke 能跑到 step6，六个 `checks` 全 True，`dropped_no_target > 0`，且守恒恒等式成立（含 step2 `dropped_samples`）。
 4. **就绪检查语义正确**：`check_raw_data` 对旧路径返回 0，缺 samples 返回 2，指纹/哈希不符返回 3。

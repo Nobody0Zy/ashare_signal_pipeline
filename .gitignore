@@ -33,4 +33,4 @@ configs/local/
 version_design/demo/
 
 # v1.1 一次性验收工具的运行期报告（默认写在仓库根）
-verify_report.json
+verify_report*.json

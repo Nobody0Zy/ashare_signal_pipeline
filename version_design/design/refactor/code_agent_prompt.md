@@ -524,9 +524,9 @@ invalid_reasons = {"unknown_symbol": 0, "date_not_in_symbol_range": 0,
 
 | 项 | 规定 |
 | :--- | :--- |
-| 参数 | `--milestone`、`--baseline`、`--baseline-git-ref`（M0 必填）、`--config`（可选）、`--state-file`（可重复）、`--output-dir`（可重复）、`--report` |
+| 参数 | `--milestone`、`--baseline`、`--baseline-git-ref`（M0 必填）、`--config`（可选）、`--state-file`（可重复）、`--samples-id`（M1 必填，可重复）、`--output-dir`（可重复）、`--report` |
 | exit | 全通过 `0`；任一失败或缺产物 `1`；参数错误 `2` |
-| 输出 | 只写 `verify_report.json` |
+| 输出 | 只写 `--report` 指定的文件（Gate 必须显式传 `--report verify_report_M<k>.json`） |
 | 依赖 | 只 `import` 标准库 + `pandas` / `pyarrow` |
 | 数字来源 | 全部 `expected` 从 baseline 读；代码中不得出现观测值字面量 |
 | 禁止 | 缺产物不得 skip；`all([])` 不得视为通过；不得 `try/except` 吞异常 |
@@ -536,11 +536,15 @@ invalid_reasons = {"unknown_symbol": 0, "date_not_in_symbol_range": 0,
 
 ```powershell
 & $py tools/verify_v11.py --milestone M0 --baseline $base --baseline-git-ref a170d67 `
-    --state-file "outputs/$ver/metadata/m0_legacy_step1.json"
-# 期望 exit 0；M0 未完成时 exit 1，且 verify_report.json 的 failed 非空
+    --state-file "outputs/$ver/metadata/m0_legacy_step1.json" `
+    --report verify_report_M0.json
+# 期望 exit 0；M0 未完成时 exit 1，且 verify_report_M0.json 的 failed 非空
 # A0-15 用 --baseline-git-ref 取 M0 修改前的 baseline，断言旧版全部键未被改写（仅允许新增键）
+# Gate 必须 --report verify_report_M<k>.json；探索性运行必须写到 $env:TEMP
 ```
 
+> M1 起 verify 必须由 `--samples-id` 显式指定样本集；禁止实现目录扫描或「无参数则跳过」（见 A1-16）。
+>
 > M5 注意：`_run_m5_checks` 必须在归档（`Move-Item`）**之前**加进 `tools/verify_v11.py`；归档后该文件不再是工作副本，无法再修改（见 §7.3 M5-4 注释与 A5-09）。
 
 ---

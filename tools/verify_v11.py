@@ -580,6 +580,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--baseline-git-ref", default="")
     parser.add_argument("--config", default="configs/kernel_v11/check/refactor_check.yaml")
     parser.add_argument("--state-file", action="append", default=[])
+    parser.add_argument("--samples-id", action="append", default=[], help="M1 起必填：待校验的样本集 ID，可重复")
     parser.add_argument("--output-dir", action="append", default=[])
     parser.add_argument("--report", default="verify_report.json")
     return parser
