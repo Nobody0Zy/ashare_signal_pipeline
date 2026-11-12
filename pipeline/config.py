@@ -559,6 +559,19 @@ class PipelineParams:
         if isinstance(tsfresh_payload, dict):
             tsfresh_payload.pop("master_library_role", None)
             tsfresh_payload.pop("master_library_version", None)
+        # 纯默认值的 v1.1 新段不进入哈希：保证旧路径（holding_file + 全默认）
+        # 的 experiment_version 与 v1.0.13 一致（baseline 可复现，A0-17/A0-18 依赖）；
+        # 任何非默认取值仍会改变哈希（标签隔离 / 采样参数隔离不受影响）。
+        # 三段独立判断：只有全等于默认值的那段才被排除。
+        _default_input = asdict(InputParams())
+        _default_target = asdict(TargetParams())
+        _default_data_prep = asdict(DataPrepParams())
+        if payload.get("input") == _default_input:
+            payload.pop("input", None)
+        if payload.get("target") == _default_target:
+            payload.pop("target", None)
+        if payload.get("data_prep") == _default_data_prep:
+            payload.pop("data_prep", None)
         return payload
 
     def build_experiment_version(self) -> str:

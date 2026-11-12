@@ -115,6 +115,12 @@
 | D54 | `spec_version` 双来源（定义级 + 全局 YAML），`label_params_hash` 未指明取哪个 | **删除**全局 `LabelBuildParams.spec_version` 与 YAML 对应行；hash 只取 `definition.spec_version`；V12 改为加载期校验定义 | **阻塞** | §3.4、§5.1、§5.2、V12 |
 | D55 | `ctx` 从未定义，且采样/标签需要不同类型；这是防泄漏边界 | 新增 `SampleContext`（`history` / `index_of`，无前瞻）与 `LabelContext`（`entry_position` / `forward_window`，无过去窗口），分别由 `build_samples` / `label_builder` 构造 | **阻塞** | §4.1、§4.5、§6.1 |
 
+### 2.4 2026-11-12 M3 实施后修复（D56，version_payload 漂移）
+
+| ID | 问题 | 修正 | 级别 | 现设计位置 |
+| :--- | :--- | :--- | :---: | :--- |
+| D56 | `version_payload` 无条件包含 v1.1 新段（input/target/data_prep），导致旧路径（holding_file + 全默认）的 experiment_version 从 `75443d88` 漂移至 `bf51d415`；A0-17 子项 3 永久失败；A0-18 在全新克隆时因旧目录不存在而失效；baseline 不可复现 | 三段各自独立判断：**全等于默认值时排除出哈希**；任何非默认取值仍进入（标签隔离、采样参数隔离不受影响）；`version_payload()` 加注释说明原因 | **阻塞** | §5.4 |
+
 ## 3. 探测证据
 
 ### 3.1 数据事实（F1–F14）

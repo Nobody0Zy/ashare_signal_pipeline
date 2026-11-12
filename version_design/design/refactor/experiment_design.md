@@ -773,7 +773,11 @@ data_prep:
 | `data_prep.*` | 是 | 采样参数变化即新样本集 |
 | `data.*` 路径 | 否 | 沿用现有排除规则 |
 | `--smoke` 取值 | 是 | `smoke_size` 在 payload 内；回归必须传相同值 |
-| 新增配置段本身 | 是 | M1 起即生效；此后不得沿用 v1.0.13 的输出目录，回归只比对 state 数值 |
+| 新增配置段**非默认取值** | 是 | 三段（input/target/data_prep）各自独立判断：**全等于默认值时不计入哈希**，因此旧路径（holding_file + 全默认）的 experiment_version 与 v1.0.13 完全一致；任一段出现非默认值即新版本（标签隔离、采样参数隔离不变） |
+
+> 为何要求默认值不进哈希：`baseline_v1.0.13.json` 的 `experiment_version` 是 M0 冻结的
+> 观测值，且被 A0-18 用来定位 `data/processed/<ver>/holding_clean.parquet`；
+> 若默认值也进哈希，全新克隆重跑 M0 会得到不同目录而无法复现基线。
 
 ---
 
@@ -1027,7 +1031,7 @@ data_prep:
 | # | 条件 |
 | :---: | :--- |
 | 1 | 默认配置（`holding_file`）跑 smoke step1–6，与基线逐值一致（`verify_v11.py --milestone M3`） |
-| 2 | 旧 YAML 不改一行仍能加载，数值与 v1.0.13 一致；因新增配置段进入 payload，`experiment_version` **会变化**（§5.4）——这是预期行为，回归只比对 state 数值 |
+| 2 | 旧 YAML 不改一行仍能加载，数值与 v1.0.13 一致；旧路径（全默认）的 `experiment_version` **与 v1.0.13 相同**（§5.4：默认值不进哈希）；非默认的 v1.1 配置仍会产生新版本 |
 | 3 | `input.mode=samples` 配置能被 `load_params` 解析；运行 step1 时在开头显式报「未实现」（M4 放开），不会静默走旧路径 |
 | 4 | `check_raw_data` 旧配置返回 0；samples 配置缺文件返回 2 |
 | 5 | `pytest tests -q` 全绿 |
@@ -1081,7 +1085,7 @@ L2 的对照必须用 `git worktree add` 检出 `v1.0.13`，否则没有「重�
 
 | # | 约束 |
 | :---: | :--- |
-| 1 | 新增配置段会改变 `experiment_version` → **不能**沿用旧输出目录；只比对 state 中的数值 |
+| 1 | 旧路径（holding_file + 全默认）的 `experiment_version` 与 v1.0.13 **完全相同**（§5.4：默认值不进哈希），可直接复用旧输出目录；非默认的 v1.1 配置才会产生新版本 |
 | 2 | step1 **在冒烟模式下不抽样**（`del mode`）：`--smoke 500` 只让 step2 从 240,257 条中抽 500，故 `step1.sample_count` 仍是 240257 |
 | 3 | step4 冒烟模式用**全体冒烟样本**筛特征，与 full 的「仅训练集」不同 → smoke 只证明代码路径一致，full 语义由 L1/L2 覆盖 |
 

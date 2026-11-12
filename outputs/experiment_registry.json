@@ -88,7 +88,7 @@
       "models_dir": "models/kernel_v11/check/kernel_v11_20261102_baseline_75443d88",
       "output_dir": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88",
       "metadata_dir": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/metadata",
-      "state_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/metadata/m0_legacy_step1.json"
+      "state_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/metadata/m3_old_step1.json"
     },
     "artifact_files": {
       "state_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/metadata/m0_legacy_step1.json",
@@ -107,7 +107,7 @@
     },
     "artifact_files_by_mode": {
       "smoke": {
-        "state_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/metadata/baseline_smoke.json",
+        "state_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/metadata/m3_old_step1.json",
         "prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/predictions_smoke.csv",
         "test_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/predictions_smoke.csv",
         "train_prediction_file": "outputs/kernel_v11/check/kernel_v11_20261102_baseline_75443d88/train_predictions_smoke.csv",
@@ -137,7 +137,7 @@
       }
     },
     "master_library": {},
-    "latest_run_mode": "full"
+    "latest_run_mode": "smoke"
   },
   {
     "experiment_version": "kernel_v11/check/kernel_v11_20261102_baseline_bf51d415",
