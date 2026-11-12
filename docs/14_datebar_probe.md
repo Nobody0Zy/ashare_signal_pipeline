@@ -27,7 +27,12 @@
 口径：以 `h=40`（`future_return` 最大 horizon）计算“信号日后可用非停牌交易日是否足够”。  
 结果：`incomplete_rows=3035 / 240257 (1.2632%)`；其中 `signal_date>=20241001` 的样本占缺口 `98.6820%`，尾部样本内缺口比例 `60.6890%`。
 
-### C5（M4 新增）
+### C4
+
+结论：`marks` 的涨跌停位序与收益跳变幅度一致，当前解码口径可用。  
+证据：按 §4.4 位序抽查 `close_limit_up(bit8)` 与 `close_limit_down(bit4)` 各 10 条，日收益率均贴近 `{+10%,-10%}` 档（最大偏差分别 `0.001176`、`0.000815`），且 `bits>=12` 全零。
+
+### C5（M4 追加：两套 datebar 规范化按值比对）
 
 结论：`data_prep/datebar.py::load_datebar` 与 `pipeline/step1_clean.py::_clean_datebar` 对同一 `dateBar.pkl` 产出的 9 列数值**按值逐值相等**（允许 `idxd` 的 int32/int64 差异）。
 
