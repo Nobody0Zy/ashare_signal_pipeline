@@ -1676,11 +1676,591 @@ def _run_m3_checks(args: argparse.Namespace, baseline: dict[str, Any], items: li
                                 "step1_datebar_rows": baseline.get("smoke", {}).get("step1_datebar_rows")}, exc)
 
 
+def _run_m4_checks(args: argparse.Namespace, baseline: dict[str, Any], items: list[dict[str, Any]]) -> None:
+    """A4-01…A4-19：step1 双模式 + runner 签名 + L1/L2/L3 回归（§6.3 / §6.4）。"""
+
+    # ── 预处理：加载全部 state 文件 ──────────────────────────────────────────
+    loaded_states: list[dict[str, Any]] = []
+    for sf in (args.state_file or []):
+        p = Path(sf)
+        if not p.is_absolute():
+            p = Path.cwd() / p
+        if p.exists():
+            try:
+                s = _read_json(p)
+                s["_file"] = str(p)
+                loaded_states.append(s)
+            except Exception:
+                pass
+
+    # 计算 ver_old（老路径 experiment_version）
+    ver_old: str | None = None
+    try:
+        ver_old = _build_experiment_version(args.config)
+    except Exception:
+        pass
+
+    def _get_details(state: dict[str, Any], step_key: str) -> dict[str, Any]:
+        return state.get("steps", {}).get(step_key, {}).get("details", {}) or {}
+
+    def _find_state(*, mode: str | None = None, needs_step: str | None = None,
+                    input_mode: str | None = None, old_path_only: bool = False) -> dict[str, Any] | None:
+        for s in loaded_states:
+            if mode is not None and s.get("mode") != mode:
+                continue
+            if old_path_only and ver_old is not None and s.get("experiment_version") != ver_old:
+                continue
+            if needs_step and needs_step not in s.get("steps", {}):
+                continue
+            if input_mode is not None:
+                d1 = _get_details(s, "step_1")
+                if d1.get("input_mode") != input_mode:
+                    continue
+            return s
+        return None
+
+    l3_state = _find_state(mode="smoke", needs_step="step_6", old_path_only=True)
+    l1_state = _find_state(mode="full", needs_step="step_1", old_path_only=True)
+    new_smoke_state = _find_state(mode="smoke", needs_step="step_6", input_mode="samples")
+
+    smoke_bl = baseline.get("smoke", {})
+    step1_bl = baseline.get("step1", {})
+
+    # ── A4-01：L3 计数类字段与 baseline.smoke.* 逐值相等 ─────────────────────
+    try:
+        if l3_state is None:
+            raise RuntimeError("未找到 L3 smoke state（需要旧路径 smoke 全链 state）")
+        d1 = _get_details(l3_state, "step_1")
+        d2 = _get_details(l3_state, "step_2")
+        d3 = _get_details(l3_state, "step_3")
+        d4 = _get_details(l3_state, "step_4")
+        d5 = _get_details(l3_state, "step_5")
+        d6 = _get_details(l3_state, "step_6")
+        count_checks = {
+            "step1_sample_count": (smoke_bl.get("step1_sample_count"), d1.get("sample_count")),
+            "step1_datebar_rows": (smoke_bl.get("step1_datebar_rows"), d1.get("datebar_rows")),
+            "step2_input_samples": (smoke_bl.get("step2_input_samples"), d2.get("input_samples")),
+            "step2_valid_samples": (smoke_bl.get("step2_valid_samples"), d2.get("valid_samples")),
+            "step2_slice_rows": (smoke_bl.get("step2_slice_rows"), d2.get("slice_rows")),
+            "step3_rows": (smoke_bl.get("step3_rows"), d3.get("rows")),
+            "step3_nan_filled": (smoke_bl.get("step3_nan_filled"), d3.get("nan_filled")),
+            "step4_columns": (smoke_bl.get("step4_columns"), d4.get("columns")),
+            "step4_selected_features": (smoke_bl.get("step4_selected_features"), d4.get("selected_features")),
+            "step5_train_rows": (smoke_bl.get("step5", {}).get("train_rows"), d5.get("train_rows")),
+            "step5_val_rows": (smoke_bl.get("step5", {}).get("val_rows"), d5.get("val_rows")),
+            "step5_test_rows": (smoke_bl.get("step5", {}).get("test_rows"), d5.get("test_rows")),
+            "step6_best_iteration": (smoke_bl.get("step6", {}).get("best_iteration"), d6.get("best_iteration")),
+        }
+        mismatches = {k: (exp, act) for k, (exp, act) in count_checks.items() if exp != act}
+        passed = len(mismatches) == 0
+        _add_item(items, "A4-01", "l3_count_fields_match_baseline",
+                  {k: v[0] for k, v in count_checks.items()},
+                  {k: v[1] for k, v in count_checks.items()},
+                  passed,
+                  detail=str(mismatches) if mismatches else "")
+    except Exception as exc:
+        _append_exception_item(items, "A4-01", "l3_count_fields_match_baseline",
+                               {"baseline": "smoke.*_count_fields"}, exc)
+
+    # ── A4-02：L3 浮点类字段与 baseline 逐值相等（1e-12 相对） ───────────────
+    try:
+        if l3_state is None:
+            raise RuntimeError("未找到 L3 smoke state")
+        d6 = _get_details(l3_state, "step_6")
+        float_checks = {
+            "step6_mae": (smoke_bl.get("step6", {}).get("mae"), d6.get("mae")),
+            "step6_spearman": (smoke_bl.get("step6", {}).get("spearman"), d6.get("spearman")),
+            "step6_pearson": (smoke_bl.get("step6", {}).get("pearson"), d6.get("pearson")),
+        }
+        mismatches_f = {
+            k: (exp, act) for k, (exp, act) in float_checks.items()
+            if not (_is_number(exp) and _is_number(act) and _float_close(float(act), float(exp)))
+        }
+        passed = len(mismatches_f) == 0
+        _add_item(items, "A4-02", "l3_float_fields_match_baseline_1e12",
+                  {k: v[0] for k, v in float_checks.items()},
+                  {k: v[1] for k, v in float_checks.items()},
+                  passed,
+                  detail=str(mismatches_f) if mismatches_f else "")
+    except Exception as exc:
+        _append_exception_item(items, "A4-02", "l3_float_fields_match_baseline_1e12",
+                               {"baseline": "smoke.step6.{mae,spearman,pearson}"}, exc)
+
+    # ── A4-03：step1.sample_count == baseline ─────────────────────────────────
+    try:
+        # 优先用 L1 full state；L1 不存在则退而用 L3 state
+        src_state = l1_state if l1_state is not None else l3_state
+        if src_state is None:
+            raise RuntimeError("未找到含 step_1 的 state")
+        d1 = _get_details(src_state, "step_1")
+        actual_sc = d1.get("sample_count")
+        expected_sc = smoke_bl.get("step1_sample_count")
+        passed = actual_sc == expected_sc
+        _add_item(items, "A4-03", "step1_sample_count_matches_baseline",
+                  {"sample_count": expected_sc}, {"sample_count": actual_sc},
+                  passed, detail="" if passed else f"{actual_sc} != {expected_sc}")
+    except Exception as exc:
+        _append_exception_item(items, "A4-03", "step1_sample_count_matches_baseline",
+                               {"sample_count": smoke_bl.get("step1_sample_count")}, exc)
+
+    # ── A4-04：step1.datebar_rows == baseline ─────────────────────────────────
+    try:
+        src_state = l1_state if l1_state is not None else l3_state
+        if src_state is None:
+            raise RuntimeError("未找到含 step_1 的 state")
+        d1 = _get_details(src_state, "step_1")
+        actual_dr = d1.get("datebar_rows")
+        expected_dr = smoke_bl.get("step1_datebar_rows")
+        passed = actual_dr == expected_dr
+        _add_item(items, "A4-04", "step1_datebar_rows_matches_baseline",
+                  {"datebar_rows": expected_dr}, {"datebar_rows": actual_dr},
+                  passed, detail="" if passed else f"{actual_dr} != {expected_dr}")
+    except Exception as exc:
+        _append_exception_item(items, "A4-04", "step1_datebar_rows_matches_baseline",
+                               {"datebar_rows": smoke_bl.get("step1_datebar_rows")}, exc)
+
+    # ── A4-05：step1.target_stats 8 项 == baseline（1e-12） ───────────────────
+    try:
+        src_state = l1_state if l1_state is not None else l3_state
+        if src_state is None:
+            raise RuntimeError("未找到含 step_1 的 state")
+        d1 = _get_details(src_state, "step_1")
+        actual_ts = d1.get("target_stats", {})
+        expected_ts = step1_bl.get("target_stats", {})
+        if not isinstance(actual_ts, dict) or not isinstance(expected_ts, dict):
+            raise RuntimeError(f"target_stats 类型错误: actual={type(actual_ts)}, expected={type(expected_ts)}")
+        ok, diffs = _deep_equal(expected_ts, actual_ts)
+        _add_item(items, "A4-05", "step1_target_stats_matches_baseline_1e12",
+                  expected_ts, actual_ts, ok,
+                  detail="; ".join(diffs[:3]) if diffs else "")
+    except Exception as exc:
+        _append_exception_item(items, "A4-05", "step1_target_stats_matches_baseline_1e12",
+                               {"target_stats": "8_describe_keys"}, exc)
+
+    # ── A4-06：samples 模式 6 个 checks 全 True，键名与 baseline 同名 ─────────
+    try:
+        if new_smoke_state is None:
+            raise RuntimeError("未找到 samples 模式 smoke state")
+        # checks 存储在 details.checks 中（不是 step_1.checks）
+        d1_a06 = _get_details(new_smoke_state, "step_1")
+        actual_checks = d1_a06.get("checks", {}) or {}
+        expected_keys = {
+            "holding_exists", "holding_columns", "holding_target_non_null",
+            "datebar_exists", "datebar_columns", "datebar_sorted",
+        }
+        expected_keys_match = set(actual_checks.keys()) == expected_keys
+        all_true = all(bool(v) for v in actual_checks.values()) if actual_checks else False
+        passed = expected_keys_match and all_true
+        _add_item(items, "A4-06", "samples_mode_step1_checks_all_true",
+                  {"expected_keys": sorted(expected_keys), "all_values": True},
+                  {"keys": sorted(actual_checks.keys()), "values": actual_checks,
+                   "keys_match": expected_keys_match, "all_true": all_true},
+                  passed)
+    except Exception as exc:
+        _append_exception_item(items, "A4-06", "samples_mode_step1_checks_all_true",
+                               {"expected_keys": "6_check_keys", "all_values": True}, exc)
+
+    # ── A4-07：samples 模式 details 16 键齐全 ────────────────────────────────
+    try:
+        if new_smoke_state is None:
+            raise RuntimeError("未找到 samples 模式 smoke state")
+        d1 = _get_details(new_smoke_state, "step_1")
+        required_16 = {
+            "input_mode", "coupling_mode", "samples_rows", "sample_count",
+            "dropped_no_target", "target_coverage", "signal_date_min", "signal_date_max",
+            "target_stats", "datebar_rows", "datebar_fingerprint", "samples_id",
+            "samples_set_hash", "label_name", "label_hash", "label_non_null_ratio",
+        }
+        missing = sorted(required_16 - set(d1.keys()))
+        passed = len(missing) == 0
+        _add_item(items, "A4-07", "samples_mode_details_16_keys_present",
+                  {"required_keys": sorted(required_16)},
+                  {"present_keys": sorted(d1.keys()), "missing": missing},
+                  passed, detail=f"缺失: {missing}" if missing else "")
+    except Exception as exc:
+        _append_exception_item(items, "A4-07", "samples_mode_details_16_keys_present",
+                               {"required_keys": "16_detail_keys"}, exc)
+
+    # ── A4-08：dropped_no_target > 0 ─────────────────────────────────────────
+    try:
+        if new_smoke_state is None:
+            raise RuntimeError("未找到 samples 模式 smoke state")
+        d1 = _get_details(new_smoke_state, "step_1")
+        actual_drop = d1.get("dropped_no_target")
+        passed = isinstance(actual_drop, int) and actual_drop > 0
+        _add_item(items, "A4-08", "dropped_no_target_gt_0",
+                  {"dropped_no_target": ">0"},
+                  {"dropped_no_target": actual_drop},
+                  passed, detail="" if passed else f"dropped_no_target={actual_drop} 不满足 > 0")
+    except Exception as exc:
+        _append_exception_item(items, "A4-08", "dropped_no_target_gt_0",
+                               {"dropped_no_target": ">0"}, exc)
+
+    # ── A4-09：守恒恒等式（按 state.mode 选口径 B：smoke）─────────────────────
+    try:
+        if new_smoke_state is None:
+            raise RuntimeError("未找到 samples 模式 smoke state")
+        st_mode = new_smoke_state.get("mode")
+        if st_mode is None:
+            raise RuntimeError(f"state 缺少 mode 字段: {new_smoke_state.get('_file')}")
+        d2 = _get_details(new_smoke_state, "step_2")
+        d4 = _get_details(new_smoke_state, "step_4")
+        for field, dct in [("input_samples", d2), ("dropped_samples", d2), ("invalid_targets_dropped", d4), ("samples", d4)]:
+            if field not in dct:
+                raise RuntimeError(f"守恒恒等式缺少字段 {field}")
+        if st_mode == "smoke":
+            # 口径 B：lhs = d2.input_samples - d2.dropped_samples - d4.invalid_targets_dropped
+            lhs = d2["input_samples"] - d2["dropped_samples"] - d4["invalid_targets_dropped"]
+            rhs = d4["samples"]
+            passed = lhs == rhs
+            detail_str = f"口径B smoke: {d2['input_samples']}-{d2['dropped_samples']}-{d4['invalid_targets_dropped']}={lhs} == {rhs}"
+        else:
+            # 口径 A：full — 含前置断言
+            d1 = _get_details(new_smoke_state, "step_1")
+            d1_samples_rows = d1.get("samples_rows")
+            d1_dropped = d1.get("dropped_no_target")
+            pre_ok = d2.get("input_samples") == (d1_samples_rows - d1_dropped) if d1_samples_rows is not None and d1_dropped is not None else False
+            lhs = d2["input_samples"] - d2["dropped_samples"] - d4["invalid_targets_dropped"]
+            rhs = d4["samples"]
+            passed = pre_ok and (lhs == rhs)
+            detail_str = (
+                f"口径A full: pre_ok={pre_ok}({d2.get('input_samples')}=={d1_samples_rows}-{d1_dropped}); "
+                f"{d2['input_samples']}-{d2['dropped_samples']}-{d4['invalid_targets_dropped']}={lhs} == {rhs}"
+            )
+        _add_item(items, "A4-09", "conservation_identity_holds",
+                  {"lhs": "d2.input-d2.dropped-d4.invalid", "rhs": "d4.samples"},
+                  {"mode": st_mode, "lhs": lhs, "rhs": rhs},
+                  passed, detail=detail_str)
+    except Exception as exc:
+        _append_exception_item(items, "A4-09", "conservation_identity_holds",
+                               {"lhs": "conservation_equation"}, exc)
+
+    # ── A4-10：details.input_mode / samples_id / label_hash == 配置推导值 ─────
+    try:
+        if new_smoke_state is None:
+            raise RuntimeError("未找到 samples 模式 smoke state")
+        # 读新路径配置
+        cfg_path = args.config
+        cfg_dir = Path(cfg_path).parent
+        samples_cfg_path = str(cfg_dir / (Path(cfg_path).stem + "_samples" + Path(cfg_path).suffix))
+
+        code = (
+            "import json,sys,hashlib;"
+            "from pipeline.config import load_params;"
+            "from data_prep.ids import canonical_json, derive_samples_id, derive_datebar_fingerprint;"
+            "params=load_params(sys.argv[1]);"
+            "dp=params.data_prep;"
+            "sc=dp.samples; uv=dp.universe;"
+            "method=sc.method;"
+            "universe_for_hash={'exclude_prefixes':list(uv.exclude_prefixes),'min_history_days':int(uv.min_history_days)};"
+            "h_input={'method':method,'params':dict(sc.params)if sc.params else {},"
+            "'universe':universe_for_hash,"
+            "'date_range':{'start':dp.date_range_start,'end':dp.date_range_end},"
+            "'min_history_days':int(uv.min_history_days),'max_samples':sc.max_samples};"
+            "ph=hashlib.sha256(canonical_json(h_input).encode()).hexdigest()[:8];"
+            "fp=derive_datebar_fingerprint(params.data.datebar_file);"
+            "sid=derive_samples_id(method,ph,fp);"
+            "src=params.target.source;"
+            "lname='target_holding_return' if src=='holding_return' else params.target.label;"
+            "import pathlib;"
+            "idx_path=pathlib.Path(params.data.labels_dir)/sid/'_index.json';"
+            "idx=json.loads(idx_path.read_text(encoding='utf-8')) if idx_path.exists() else {};"
+            "lhash=str(idx.get(lname,{}).get('params_hash',''));"
+            "print(json.dumps({'input_mode':params.input.mode,'samples_id':sid,'label_hash':lhash}))"
+        )
+        rc, stdout, stderr = _run_subprocess([sys.executable, "-c", code, samples_cfg_path])
+        if rc != 0:
+            raise RuntimeError(f"配置推导失败: rc={rc}; stderr={stderr[:300]}")
+        expected_config = json.loads(stdout)
+
+        d1 = _get_details(new_smoke_state, "step_1")
+        actual_map = {
+            "input_mode": d1.get("input_mode"),
+            "samples_id": d1.get("samples_id"),
+            "label_hash": d1.get("label_hash"),
+        }
+        expected_map = {
+            "input_mode": expected_config.get("input_mode"),
+            "samples_id": expected_config.get("samples_id"),
+            "label_hash": expected_config.get("label_hash"),
+        }
+        mismatches_10 = {k: (expected_map[k], actual_map[k]) for k in expected_map if expected_map[k] != actual_map[k]}
+        passed = len(mismatches_10) == 0
+        _add_item(items, "A4-10", "step1_details_match_config_derived_values",
+                  expected_map, actual_map, passed,
+                  detail=str(mismatches_10) if mismatches_10 else "")
+    except Exception as exc:
+        _append_exception_item(items, "A4-10", "step1_details_match_config_derived_values",
+                               {"input_mode": "samples", "samples_id": "derived", "label_hash": "derived"}, exc)
+
+    # ── A4-11：两模式 holding_clean 文件名不变、必需 4 列齐全 ────────────────
+    try:
+        required_4 = {"sample_id", "idxs", "signal_date", "target"}
+        failures: list[str] = []
+        # 从所有 state 中收集 step_1 的 output_files 来定位 holding_clean.parquet
+        checked: list[str] = []
+        for s in loaded_states:
+            st1_files = s.get("steps", {}).get("step_1", {}).get("output_files", []) or []
+            for f in st1_files:
+                if "holding_clean" in f:
+                    pq = Path.cwd() / f
+                    checked.append(str(pq))
+                    if not pq.exists():
+                        failures.append(f"holding_clean.parquet 不存在: {pq}")
+                        continue
+                    try:
+                        df = pd.read_parquet(pq)
+                        missing_cols = sorted(required_4 - set(df.columns))
+                        if missing_cols:
+                            failures.append(f"{pq}: 缺少必需列 {missing_cols}")
+                    except Exception as read_exc:
+                        failures.append(f"{pq}: 读取失败 {read_exc}")
+        if not checked:
+            failures.append("未在任何 state 文件中找到 holding_clean.parquet 路径")
+        passed = len(failures) == 0
+        _add_item(items, "A4-11", "both_modes_holding_clean_filename_and_columns",
+                  {"filename": "holding_clean.parquet", "required_columns": sorted(required_4)},
+                  {"checked": checked, "failures": failures},
+                  passed, detail="; ".join(failures[:3]) if failures else "")
+    except Exception as exc:
+        _append_exception_item(items, "A4-11", "both_modes_holding_clean_filename_and_columns",
+                               {"filename": "holding_clean.parquet"}, exc)
+
+    # ── A4-12：新路径 state step_1…step_6 全 completed 且 checks_passed 全 True ─
+    try:
+        if new_smoke_state is None:
+            raise RuntimeError("未找到 samples 模式 smoke state")
+        steps = new_smoke_state.get("steps", {})
+        required_steps = [f"step_{i}" for i in range(1, 7)]
+        step_results = {}
+        for sk in required_steps:
+            sv = steps.get(sk, {})
+            step_results[sk] = {"status": sv.get("status"), "checks_passed": sv.get("checks_passed")}
+        all_ok = all(
+            v["status"] == "completed" and v["checks_passed"] is True
+            for v in step_results.values()
+        )
+        _add_item(items, "A4-12", "new_path_state_all_steps_completed",
+                  {"all_steps": "completed+checks_passed=True"},
+                  step_results, all_ok,
+                  detail="" if all_ok else str({k: v for k, v in step_results.items() if not (v["status"] == "completed" and v["checks_passed"] is True)}))
+    except Exception as exc:
+        _append_exception_item(items, "A4-12", "new_path_state_all_steps_completed",
+                               {"all_steps": "completed+checks_passed=True"}, exc)
+
+    # ── A4-13：step2 details 含 dropped_samples，invalid_reasons 含 4 个新键 ──
+    try:
+        # 用新路径 smoke state（步骤 2 结构）
+        src = new_smoke_state if new_smoke_state is not None else l3_state
+        if src is None:
+            raise RuntimeError("未找到含 step_2 的 state")
+        d2 = _get_details(src, "step_2")
+        has_dropped = "dropped_samples" in d2
+        ir = d2.get("invalid_reasons", {})
+        required_ir = {"unknown_symbol", "date_not_in_symbol_range", "paused_signal_date", "insufficient_history"}
+        actual_ir_keys = set(ir.keys())
+        ir_ok = actual_ir_keys == required_ir
+        passed = has_dropped and ir_ok
+        _add_item(items, "A4-13", "step2_has_dropped_samples_and_4_invalid_reason_keys",
+                  {"dropped_samples": "present", "invalid_reasons_keys": sorted(required_ir)},
+                  {"has_dropped_samples": has_dropped, "invalid_reasons_keys": sorted(actual_ir_keys)},
+                  passed, detail="" if passed else f"has_dropped={has_dropped}, ir_ok={ir_ok}, extra={sorted(actual_ir_keys-required_ir)}, missing={sorted(required_ir-actual_ir_keys)}")
+    except Exception as exc:
+        _append_exception_item(items, "A4-13", "step2_has_dropped_samples_and_4_invalid_reason_keys",
+                               {"invalid_reasons": "4_new_keys"}, exc)
+
+    # ── A4-14：两模式 holding_clean 的 idxs 为 str、signal_date 为整型、sample_id 为 int64 ─
+    try:
+        dtype_failures: list[str] = []
+        # 从所有 state 中收集 holding_clean.parquet 路径
+        for s in loaded_states:
+            st1_files = s.get("steps", {}).get("step_1", {}).get("output_files", []) or []
+            for f in st1_files:
+                if "holding_clean" in f:
+                    pq = Path.cwd() / f
+                    if not pq.exists():
+                        continue
+                    try:
+                        df = pd.read_parquet(pq)
+                        if str(df["idxs"].dtype) not in ("object", "string", "StringDtype"):
+                            dtype_failures.append(f"{pq}: idxs dtype={df['idxs'].dtype} 应为 str/object")
+                        if not pd.api.types.is_integer_dtype(df["signal_date"]):
+                            dtype_failures.append(f"{pq}: signal_date dtype={df['signal_date'].dtype} 应为整型")
+                        if str(df["sample_id"].dtype) != "int64":
+                            dtype_failures.append(f"{pq}: sample_id dtype={df['sample_id'].dtype} 应为 int64")
+                    except Exception as read_exc:
+                        dtype_failures.append(f"{pq}: 读取失败 {read_exc}")
+        passed = len(dtype_failures) == 0
+        _add_item(items, "A4-14", "holding_clean_column_dtypes_correct",
+                  {"idxs": "str/object", "signal_date": "int", "sample_id": "int64"},
+                  {"failures": dtype_failures},
+                  passed, detail="; ".join(dtype_failures[:3]) if dtype_failures else "")
+    except Exception as exc:
+        _append_exception_item(items, "A4-14", "holding_clean_column_dtypes_correct",
+                               {"idxs": "str", "signal_date": "int", "sample_id": "int64"}, exc)
+
+    # ── A4-15：processed/datebar.parquet 恒 9 列（两模式）────────────────────
+    try:
+        required_9 = ["idxs", "idxd", "open", "high", "low", "close", "volume", "amount", "paused"]
+        col_failures: list[str] = []
+        # 从所有 state 中收集 datebar.parquet 路径
+        for s in loaded_states:
+            st1_files = s.get("steps", {}).get("step_1", {}).get("output_files", []) or []
+            for f in st1_files:
+                if f.endswith("datebar.parquet"):
+                    pq = Path.cwd() / f
+                    if not pq.exists():
+                        continue
+                    try:
+                        df = pd.read_parquet(pq)
+                        actual_cols = list(df.columns)
+                        if actual_cols != required_9:
+                            col_failures.append(f"{pq}: columns={actual_cols}")
+                    except Exception as read_exc:
+                        col_failures.append(f"{pq}: 读取失败 {read_exc}")
+        passed = len(col_failures) == 0
+        _add_item(items, "A4-15", "datebar_parquet_always_9_columns",
+                  {"columns": required_9},
+                  {"failures": col_failures},
+                  passed, detail="; ".join(col_failures[:3]) if col_failures else "")
+    except Exception as exc:
+        _append_exception_item(items, "A4-15", "datebar_parquet_always_9_columns",
+                               {"columns": "9_cols"}, exc)
+
+    # ── A4-16：docs/14 记录了 datebar 按值比对结论 ────────────────────────────
+    try:
+        doc14 = Path("docs/14_datebar_probe.md")
+        if not doc14.exists():
+            raise FileNotFoundError(f"docs/14_datebar_probe.md 不存在")
+        content = doc14.read_text(encoding="utf-8")
+        keywords = ["data_prep/datebar", "_clean_datebar", "按值", "逐值相等"]
+        hits_16 = [kw for kw in keywords if kw in content]
+        passed = len(hits_16) >= 1
+        _add_item(items, "A4-16", "docs14_records_datebar_comparison_conclusion",
+                  {"min_hits": 1, "keywords": keywords},
+                  {"hits": hits_16},
+                  passed, detail="" if passed else "docs/14 未找到 datebar 比对结论")
+    except Exception as exc:
+        _append_exception_item(items, "A4-16", "docs14_records_datebar_comparison_conclusion",
+                               {"min_hits": 1}, exc)
+
+    # ── A4-17：samples 模式 holding_clean 按 sample_id 升序 ──────────────────
+    try:
+        if new_smoke_state is None:
+            raise RuntimeError("未找到 samples 模式 smoke state")
+        st1_files = new_smoke_state.get("steps", {}).get("step_1", {}).get("output_files", []) or []
+        hc_path_str = next((f for f in st1_files if "holding_clean" in f), None)
+        if not hc_path_str:
+            raise RuntimeError("未在 state 的 output_files 中找到 holding_clean.parquet")
+        hc_path = Path.cwd() / hc_path_str
+        if not hc_path.exists():
+            raise FileNotFoundError(f"holding_clean.parquet 不存在: {hc_path}")
+        df_hc = pd.read_parquet(hc_path)
+        is_ascending = bool((df_hc["sample_id"].diff().dropna() > 0).all())
+        _add_item(items, "A4-17", "samples_mode_holding_clean_ascending_sample_id",
+                  {"sample_id_order": "strictly_ascending"},
+                  {"is_ascending": is_ascending, "file": hc_path_str},
+                  is_ascending, detail="" if is_ascending else "sample_id 未严格升序")
+    except Exception as exc:
+        _append_exception_item(items, "A4-17", "samples_mode_holding_clean_ascending_sample_id",
+                               {"sample_id_order": "ascending"}, exc)
+
+    # ── A4-18：data_prep/datebar.py 与 _clean_datebar 的 9 列按值逐值相等 ─────
+    try:
+        # 获取 datebar 文件路径（通过子进程避免循环导入）
+        code_dp = (
+            "import sys;"
+            "from pipeline.config import load_params;"
+            "p=load_params(sys.argv[1]);"
+            "print(p.data.datebar_file)"
+        )
+        rc_dp, datebar_file, _ = _run_subprocess([sys.executable, "-c", code_dp, args.config])
+        if rc_dp != 0:
+            raise RuntimeError(f"获取 datebar 路径失败: {datebar_file}")
+        datebar_file = datebar_file.strip()
+
+        # 获取 step1 输出的 datebar.parquet 路径（来自旧路径 state）
+        datebar_pq_str = None
+        for s in loaded_states:
+            if ver_old is None or s.get("experiment_version") == ver_old:
+                for f in s.get("steps", {}).get("step_1", {}).get("output_files", []) or []:
+                    if f.endswith("datebar.parquet"):
+                        datebar_pq_str = f
+                        break
+            if datebar_pq_str:
+                break
+        if datebar_pq_str is None:
+            raise RuntimeError("未找到 datebar.parquet 路径（state output_files）")
+
+        datebar_pq_path = Path.cwd() / datebar_pq_str
+        if not datebar_pq_path.exists():
+            raise FileNotFoundError(f"datebar.parquet 不存在: {datebar_pq_path}")
+
+        # 直接在本进程比对（verify_v11 允许 import data_prep；需确保 repo root 在 sys.path）
+        import sys as _sys  # noqa: PLC0415
+        _repo_root = str(Path.cwd())
+        if _repo_root not in _sys.path:
+            _sys.path.insert(0, _repo_root)
+        from data_prep.datebar import load_datebar  # noqa: PLC0415
+        nine = ["idxs", "idxd", "open", "high", "low", "close", "volume", "amount", "paused"]
+        df_dp, _ = load_datebar(datebar_file)
+        df_dp = df_dp[nine].copy()
+        df_p1 = pd.read_parquet(datebar_pq_path)
+        shape_ok = df_dp.shape == df_p1.shape
+        col_ok = list(df_dp.columns) == list(df_p1.columns)
+        if not shape_ok or not col_ok:
+            raise RuntimeError(f"shape/cols mismatch: {df_dp.shape} vs {df_p1.shape}, cols: {col_ok}")
+        diffs_18: list[str] = []
+        for c in nine:
+            if c == "idxs":
+                eq = (df_dp[c].values == df_p1[c].values).all()
+            elif c == "paused":
+                eq = (df_dp[c].astype(bool).values == df_p1[c].astype(bool).values).all()
+            elif c == "idxd":
+                eq = (df_dp[c].astype("int64").values == df_p1[c].astype("int64").values).all()
+            else:
+                eq = (df_dp[c].astype("float64").values == df_p1[c].astype("float64").values).all()
+            if not eq:
+                diffs_18.append(c)
+        passed = len(diffs_18) == 0
+        _add_item(items, "A4-18", "data_prep_datebar_vs_clean_datebar_equal",
+                  {"columns_equal": True, "values_equal": True},
+                  {"datebar_file": datebar_file, "datebar_pq": str(datebar_pq_path),
+                   "shape": str(df_dp.shape), "diff_cols": diffs_18},
+                  passed, detail=f"不一致列: {diffs_18}" if diffs_18 else "")
+    except Exception as exc:
+        _append_exception_item(items, "A4-18", "data_prep_datebar_vs_clean_datebar_equal",
+                               {"values_equal": True}, exc)
+
+    # ── A4-19：verify_v11 只增不改（m3-ok 基线，删除列 == 0，新增列 > 0）────
+    try:
+        rc_m4ok, _, _ = _run_subprocess(["git", "--no-pager", "rev-parse", "m4-ok"])
+        if rc_m4ok == 0:
+            cmd = ["git", "--no-pager", "diff", "--numstat", "m3-ok..m4-ok", "--", "tools/verify_v11.py"]
+        else:
+            cmd = ["git", "--no-pager", "diff", "--numstat", "m3-ok", "--", "tools/verify_v11.py"]
+        rc_19, stdout_19, _ = _run_subprocess(cmd)
+        if rc_19 != 0:
+            raise RuntimeError(f"git diff 失败; rc={rc_19}")
+        parts = stdout_19.strip().split()
+        additions_19 = int(parts[0]) if len(parts) >= 2 and parts[0].isdigit() else -1
+        deletions_19 = int(parts[1]) if len(parts) >= 2 and parts[1].isdigit() else -1
+        passed = deletions_19 == 0 and additions_19 > 0
+        _add_item(items, "A4-19", "verify_v11_only_additions_m3_base",
+                  {"deletions": 0, "additions_gt_0": True},
+                  {"raw": stdout_19, "deletions": deletions_19, "additions": additions_19},
+                  passed)
+    except Exception as exc:
+        _append_exception_item(items, "A4-19", "verify_v11_only_additions_m3_base",
+                               {"deletions": 0, "additions_gt_0": True}, exc)
+
+
 MILESTONE_RUNNERS: dict[str, Any] = {
     "M0": _run_m0_checks,
     "M1": _run_m1_checks,
     "M2": _run_m2_checks,
     "M3": _run_m3_checks,
+    "M4": _run_m4_checks,
     # 后续里程碑在此表中各插入一行，不得修改已有条目
 }
 

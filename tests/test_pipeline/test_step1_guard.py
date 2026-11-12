@@ -1,4 +1,4 @@
-"""M1 守卫：input.mode=samples 在 step1 顶部显式拒绝（M4 才开放双模式）。"""
+"""M1 守卫测试（已更新至 M4）：samples 模式不再抛 NotImplementedError，改为实际执行。"""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import pytest
 from unittest.mock import MagicMock
 
 
-def test_step1_raises_not_implemented_for_samples_mode():
-    """compute_step1 对 input.mode=samples 应立即抛出 NotImplementedError。"""
+def test_step1_samples_mode_no_longer_raises_not_implemented():
+    """M4 实现了 samples 模式：compute_step1 不再对 input.mode=samples 抛 NotImplementedError。"""
     from pipeline.config import PipelineParams
     from pipeline.step1_clean import compute_step1
 
@@ -18,12 +18,17 @@ def test_step1_raises_not_implemented_for_samples_mode():
     })
     mock_paths = MagicMock()
 
-    with pytest.raises(NotImplementedError, match="samples"):
+    # M4 后 samples 模式已实现：会尝试加载数据文件，不会抛 NotImplementedError
+    with pytest.raises(Exception) as exc_info:
         compute_step1(mock_paths, "smoke", params)
 
+    assert not isinstance(exc_info.value, NotImplementedError), (
+        "M4 后 samples 模式已实现，不应再抛 NotImplementedError（guard 已改为 early-return 分派）"
+    )
 
-def test_step1_raises_contains_m4_hint():
-    """错误消息应提示 M4 或工具命令，便于用户定位。"""
+
+def test_step1_samples_mode_raises_on_missing_data():
+    """samples 模式缺少 raw 数据时抛出文件/数据相关错误，而非 NotImplementedError。"""
     from pipeline.config import PipelineParams
     from pipeline.step1_clean import compute_step1
 
@@ -33,11 +38,10 @@ def test_step1_raises_contains_m4_hint():
         "window": {"lookback_days": 60},
     })
 
-    with pytest.raises(NotImplementedError) as exc_info:
+    with pytest.raises(Exception) as exc_info:
         compute_step1(MagicMock(), "full", params)
 
-    msg = str(exc_info.value)
-    assert "samples" in msg
+    assert not isinstance(exc_info.value, NotImplementedError)
 
 
 def test_step1_holding_file_mode_does_not_raise_guard(tmp_path):

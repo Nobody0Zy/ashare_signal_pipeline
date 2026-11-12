@@ -8,14 +8,17 @@
 
 ## Step 1
 
-| Check | 语义 |
-| :--- | :--- |
-| `holding_exists` | 清洗后的持仓表已落盘，且路径可读 |
-| `holding_columns` | 持仓表包含最小必需字段，如 `sample_id`、`signal_date`、`target` |
-| `holding_target_non_null` | 监督目标列非空，不能把空标签带入后续步骤 |
-| `datebar_exists` | 标准化后的日线表已落盘，且路径可读 |
-| `datebar_columns` | 日线表列集合符合约定，列名已统一 |
-| `datebar_sorted` | 日线表按 `(idxs, idxd)` 正确排序 |
+| Check | 语义（`holding_file` 模式） | 语义（`samples` 模式） |
+| :--- | :--- | :--- |
+| `holding_exists` | 清洗后的持仓表已落盘，且路径可读 | 同左（文件名不变） |
+| `holding_columns` | 持仓表包含最小必需字段，如 `sample_id`、`signal_date`、`target` | 同左（字段语义不变；`target` 来自标签文件） |
+| `holding_target_non_null` | 监督目标列非空，不能把空标签带入后续步骤 | 同左（step1 已丢弃空标签行，非空性有保证） |
+| `datebar_exists` | 标准化后的日线表已落盘，且路径可读 | 同左（两模式均调用 `_clean_datebar`） |
+| `datebar_columns` | 日线表列集合符合约定，列名已统一 | 同左 |
+| `datebar_sorted` | 日线表按 `(idxs, idxd)` 正确排序 | 同左 |
+
+> **两模式 check 键名与布尔语义完全相同（§6.2 不变量 5）。**  
+> `samples` 模式在 `holding_target_non_null` 恒为 True 的前提是：step1 已在 join 后丢弃所有 `target` 为空的行（`dropped_no_target` 字段记录丢弃数量），进入后续步骤的样本均有有效标签。
 
 ## Step 2
 
