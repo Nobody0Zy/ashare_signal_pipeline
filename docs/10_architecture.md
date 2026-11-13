@@ -87,6 +87,26 @@ flowchart LR
     G --> M
 ```
 
+## data_prep 前置层（v1.1+）
+
+当 `input.mode: samples` 时，step1 之前需要先运行 `data_prep` 前置层：
+
+```text
+data/raw/ 或外部数据
+  └→ tools/build_samples.py     → data/prepared/<samples_id>/
+  └→ tools/build_labels.py      → data/labels/<samples_id>/
+       └→ step1_clean（samples 模式）→ 后续步骤与 holding_file 模式一致
+```
+
+| 模块 | 职责 | 路径 |
+| :--- | :--- | :--- |
+| `data_prep/build_samples.py` | 样本生成核心逻辑 | `data_prep/` |
+| `data_prep/label_builder.py` | 标签生成与缓存 | `data_prep/` |
+| `tools/build_samples.py` | 样本生成 CLI 入口 | `tools/` |
+| `tools/build_labels.py` | 标签生成 CLI 入口 | `tools/` |
+
+`data_prep/` 不 import `pipeline/`；`pipeline/` 只在函数内惰性 import `data_prep`（见 §5 实现硬约束）。
+
 ## 关键不变式
 
 ### 1. step 语义不变

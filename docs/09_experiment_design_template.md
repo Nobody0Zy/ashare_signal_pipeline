@@ -46,6 +46,7 @@
 - 关键字段：
 - 样本量口径：
 - 时间范围：
+- **样本来源**：`holding_file`（旧持仓表）/ `samples`（事件采样 + 标签文件）；若为后者，需记录 `sampling_method`、`sampling_params`、`label_name`、`spec_version`。
 
 ## 5. 评价口径
 

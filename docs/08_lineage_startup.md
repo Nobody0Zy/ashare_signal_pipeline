@@ -32,10 +32,10 @@
    python tools/scaffold_experiment_line.py <base_version> --version-subdir <version_subdir> --label baseline
    ```
 
-   这会生成 `configs/<base_version>/<version_subdir>/`、`design/<base_version>/<version_subdir>/`，并在 `design/<base_version>/README.md` 追加本版本记录。
+   这会生成 `configs/<base_version>/<version_subdir>/`、`version_design/design/<lineage>/<version_subdir>/`，并在 `version_design/design/<lineage>/README.md` 追加本版本记录。
 
 5. **写版本上下文**  
-   在 `design/<base_version>/<version_subdir>/` 下补充 `CONTEXT.md`，记录 fork 版本、样本族、数据来源、版本目标。
+   在 `version_design/design/<lineage>/<version_subdir>/` 下补充 `CONTEXT.md`，记录 fork 版本、样本族、数据来源、版本目标。
 
 6. **补配置并注册**  
    在配置中设置 `experiment.version_subdir: <version_subdir>`，并把该配置注册到 `configs/experiment_index.yaml`。
@@ -76,17 +76,17 @@
 
 | 文件 | 落位 |
 | :--- | :--- |
-| 版本上下文 | `design/<base_version>/<version_subdir>/CONTEXT.md` |
-| 实验设计 | `design/<base_version>/<version_subdir>/experiment_design.md` |
-| 实施计划 | `design/<base_version>/<version_subdir>/implementation_plan.md` |
-| 收尾记录 | `design/<base_version>/<version_subdir>/closeout.md` |
-| 主库基线 | `design/<base_version>/<version_subdir>/baseline_fixture.md` |
-| 样本族总览 | `design/<base_version>/README.md`（跨版本，记录本族已有哪些 `version_subdir`） |
+| 版本上下文 | `version_design/design/<lineage>/<version_subdir>/CONTEXT.md` |
+| 实验设计 | `version_design/design/<lineage>/<version_subdir>/experiment_design.md` |
+| 实施计划 | `version_design/design/<lineage>/<version_subdir>/implementation_plan.md` |
+| 收尾记录 | `version_design/design/<lineage>/<version_subdir>/closeout.md` |
+| 主库基线 | `version_design/design/<lineage>/<version_subdir>/baseline_fixture.md` |
+| 样本族总览 | `version_design/design/<lineage>/README.md`（跨版本，记录本族已有哪些 `version_subdir`） |
 
-> `design/` 按 `base_version/version_subdir/` 两级组织，**不要扁平化**。
+> `version_design/design/<lineage>/` 按 `<lineage>/<version_subdir>/` 两级组织，**不要扁平化**。
 > 原因：每一轮迭代都会产生同名的 `experiment_design.md` / `implementation_plan.md`；
 > 扁平存放会造成同名冲突。样本族层面的公共信息（如本族已有哪些版本）写入
-> `design/<base_version>/README.md`，不重复写到各版本目录。
+> `version_design/design/<lineage>/README.md`，不重复写到各版本目录。
 
 ## 最小复核清单
 

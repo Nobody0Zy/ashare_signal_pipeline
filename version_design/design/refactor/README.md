@@ -58,3 +58,15 @@
 | 分支 | `refactor/v1.1` |
 | 基线 tag | `v1.0.13`（`70d4341`） |
 | 发布 Gate | 旧路径 12 个字段逐值一致 + 新路径 smoke 跑通 step6 |
+
+> 设计文档路径约定：`version_design/design/<lineage>/`（版本目录：`version_design/design/<lineage>/<version_subdir>/`）
+
+---
+
+## v1.1.1（报告重构）
+
+| 文件 | 内容 | 状态 |
+| :--- | :--- | :--- |
+| [v1.1.1_report/design.md](./v1.1.1_report/design.md) | 报告层重构规范：三份报告（engineering / experiment / executive）、事实表契约、产物清单、可读性规范、里程碑与验收 | 设计稿，待评审 |
+
+> 该迭代在 `v1.1.0` 发布后开分支 `refactor/v1.1.1`，不修改 step1–step6 任何行为。

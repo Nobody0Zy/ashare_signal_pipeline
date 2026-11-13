@@ -2255,12 +2255,259 @@ def _run_m4_checks(args: argparse.Namespace, baseline: dict[str, Any], items: li
                                {"deletions": 0, "additions_gt_0": True}, exc)
 
 
+def _run_m5_checks(args: argparse.Namespace, baseline: dict[str, Any], items: list[dict[str, Any]]) -> None:
+    """A5-01…A5-09：收尾与发布验收。"""
+
+    # ── A5-01：tools/verify_v11.py 已删除或归档（git ls-files 无此路径）────────
+    try:
+        rc, stdout, _ = _run_subprocess(["git", "--no-pager", "ls-files", "--error-unmatch", "tools/verify_v11.py"])
+        # rc != 0 means file is not tracked → passed (deleted/archived)
+        passed = rc != 0
+        _add_item(items, "A5-01", "verify_v11_deleted_or_archived",
+                  {"git_ls_files_exit": "!=0"},
+                  {"git_ls_files_exit": rc, "stdout": stdout[:200]},
+                  passed,
+                  detail="tools/verify_v11.py 仍在 git 跟踪中" if not passed else "")
+    except Exception as exc:
+        _append_exception_item(items, "A5-01", "verify_v11_deleted_or_archived",
+                               {"git_ls_files_exit": "!=0"}, exc)
+
+    # ── A5-02：registry 条目数 ≥ 1，每条目 metadata/ 下存在 pipeline_state_*.json ──
+    registry_entries: list[dict[str, Any]] = []
+    try:
+        reg_path = Path("outputs/experiment_registry.json")
+        if not reg_path.exists():
+            raise FileNotFoundError("outputs/experiment_registry.json 不存在")
+        registry_entries = _read_json(reg_path)
+        if not isinstance(registry_entries, list):
+            raise TypeError(f"registry 根节点应为 list，实际为 {type(registry_entries).__name__}")
+        entry_count = len(registry_entries)
+        if entry_count == 0:
+            _add_item(items, "A5-02", "registry_non_empty_with_state_files",
+                      {"min_entries": 1, "state_files_exist": True},
+                      {"entry_count": 0},
+                      False, detail="registry 条目数为 0（禁止空真）")
+        else:
+            per: dict[str, Any] = {}
+            ok = True
+            for entry in registry_entries:
+                ver = entry.get("experiment_version", "")
+                if not ver:
+                    per["<empty_version>"] = "experiment_version 为空"
+                    ok = False
+                    continue
+                meta_dir = Path("outputs") / ver / "metadata"
+                state_files = sorted(meta_dir.glob("pipeline_state_*.json")) if meta_dir.exists() else []
+                has_state = len(state_files) > 0
+                per[ver] = {"metadata_dir_exists": meta_dir.exists(),
+                            "state_files_count": len(state_files),
+                            "state_files": [f.name for f in state_files]}
+                if not has_state:
+                    ok = False
+            _add_item(items, "A5-02", "registry_non_empty_with_state_files",
+                      {"min_entries": 1, "state_files_exist": True},
+                      {"entry_count": entry_count, "per_version": per},
+                      ok)
+    except Exception as exc:
+        _append_exception_item(items, "A5-02", "registry_non_empty_with_state_files",
+                               {"min_entries": 1, "state_files_exist": True}, exc)
+
+    # ── A5-03：每条目六步全绿 ────────────────────────────────────────────────
+    try:
+        if not registry_entries:
+            _add_item(items, "A5-03", "registry_entries_all_steps_completed",
+                      {"all_steps": "completed+checks_passed=True"},
+                      {"entry_count": 0}, False, detail="registry 条目数为 0")
+        else:
+            per = {}
+            ok = True
+            for entry in registry_entries:
+                ver = entry.get("experiment_version", "")
+                if not ver:
+                    per["<empty>"] = "experiment_version 为空"
+                    ok = False
+                    continue
+                meta_dir = Path("outputs") / ver / "metadata"
+                state_files = sorted(meta_dir.glob("pipeline_state_*.json")) if meta_dir.exists() else []
+                if not state_files:
+                    per[ver] = "无 pipeline_state_*.json"
+                    ok = False
+                    continue
+                entry_ok = False
+                for sf in state_files:
+                    try:
+                        state = _read_json(sf)
+                        steps = state.get("steps", {})
+                        if len(steps) == 6 and all(
+                            v.get("status") == "completed" and v.get("checks_passed") is True
+                            for v in steps.values()
+                        ):
+                            entry_ok = True
+                            break
+                    except Exception:
+                        continue
+                per[ver] = entry_ok
+                if not entry_ok:
+                    ok = False
+            _add_item(items, "A5-03", "registry_entries_all_steps_completed",
+                      {"all_steps": "completed+checks_passed=True"},
+                      per, ok)
+    except Exception as exc:
+        _append_exception_item(items, "A5-03", "registry_entries_all_steps_completed",
+                               {"all_steps": "completed+checks_passed=True"}, exc)
+
+    # ── A5-04：--state-file 指定的发布 smoke 六步全绿 ───────────────────────
+    try:
+        if not args.state_file:
+            raise RuntimeError("未提供 --state-file，A5-04 判 fail")
+        release_state: dict[str, Any] | None = None
+        for sf in args.state_file:
+            p = Path(sf)
+            if not p.is_absolute():
+                p = Path.cwd() / p
+            if p.exists():
+                try:
+                    candidate = _read_json(p)
+                    if isinstance(candidate.get("steps"), dict) and len(candidate["steps"]) == 6:
+                        release_state = candidate
+                        break
+                except Exception:
+                    pass
+        if release_state is None:
+            raise RuntimeError(f"在 state_files={args.state_file!r} 中未找到含 6 步的有效状态文件")
+        steps = release_state.get("steps", {})
+        required_steps = [f"step_{i}" for i in range(1, 7)]
+        step_results = {}
+        for sk in required_steps:
+            sv = steps.get(sk, {})
+            step_results[sk] = {"status": sv.get("status"), "checks_passed": sv.get("checks_passed")}
+        all_ok = all(
+            v["status"] == "completed" and v["checks_passed"] is True
+            for v in step_results.values()
+        )
+        _add_item(items, "A5-04", "release_state_all_steps_completed",
+                  {"all_steps": "completed+checks_passed=True"},
+                  step_results, all_ok,
+                  detail="" if all_ok else str({
+                      k: v for k, v in step_results.items()
+                      if not (v["status"] == "completed" and v["checks_passed"] is True)
+                  }))
+    except Exception as exc:
+        _append_exception_item(items, "A5-04", "release_state_all_steps_completed",
+                               {"all_steps": "completed+checks_passed=True"}, exc)
+
+    # ── A5-05：pytest.ini 存在，tests/** 至少一个 test_*.py ─────────────────
+    try:
+        pytest_ini_ok = Path("pytest.ini").exists()
+        test_files = list(Path("tests").rglob("test_*.py")) if Path("tests").exists() else []
+        has_tests = len(test_files) > 0
+        passed = pytest_ini_ok and has_tests
+        _add_item(items, "A5-05", "pytest_ini_and_test_files_exist",
+                  {"pytest_ini": True, "test_files_gt_0": True},
+                  {"pytest_ini_exists": pytest_ini_ok, "test_files_count": len(test_files),
+                   "sample_files": [str(f) for f in test_files[:3]]},
+                  passed,
+                  detail=("pytest.ini 不存在; " if not pytest_ini_ok else "")
+                         + ("tests/** 无 test_*.py" if not has_tests else ""))
+    except Exception as exc:
+        _append_exception_item(items, "A5-05", "pytest_ini_and_test_files_exist",
+                               {"pytest_ini": True, "test_files_gt_0": True}, exc)
+
+    # ── A5-06：git cat-file -t v1.1.0 == tag ───────────────────────────────
+    try:
+        rc, stdout, _ = _run_subprocess(["git", "--no-pager", "cat-file", "-t", "v1.1.0"])
+        actual = stdout.strip()
+        passed = rc == 0 and actual == "tag"
+        _add_item(items, "A5-06", "v1_1_0_is_annotated_tag",
+                  {"git_cat_file_type": "tag"},
+                  {"exit_code": rc, "type": actual},
+                  passed,
+                  detail=f"git cat-file 返回 {actual!r} (exit {rc})" if not passed else "")
+    except Exception as exc:
+        _append_exception_item(items, "A5-06", "v1_1_0_is_annotated_tag",
+                               {"git_cat_file_type": "tag"}, exc)
+
+    # ── A5-07：README.md 含目录约定一行 ──────────────────────────────────────
+    try:
+        readme_path = Path("version_design/design/refactor/README.md")
+        if not readme_path.exists():
+            raise FileNotFoundError(f"{readme_path} 不存在")
+        content = readme_path.read_text(encoding="utf-8")
+        convention_hits = content.count("version_design/design/<lineage>/")
+        passed = convention_hits >= 1
+        _add_item(items, "A5-07", "readme_contains_directory_convention",
+                  {"min_hits": 1, "pattern": "version_design/design/<lineage>/"},
+                  {"hits": convention_hits},
+                  passed,
+                  detail="README.md 未找到目录约定行" if not passed else "")
+    except Exception as exc:
+        _append_exception_item(items, "A5-07", "readme_contains_directory_convention",
+                               {"min_hits": 1, "pattern": "version_design/design/<lineage>/"}, exc)
+
+    # ── A5-08：AGENTS.md 与 docs/08 中旧写法命中数为 0 ──────────────────────
+    try:
+        old_pattern = "design/<base_version>/"
+        files_to_check = [Path("AGENTS.md"), Path("docs/08_lineage_startup.md")]
+        per = {}
+        ok = True
+        for fp in files_to_check:
+            if not fp.exists():
+                per[str(fp)] = {"error": "文件不存在"}
+                ok = False
+                continue
+            text = fp.read_text(encoding="utf-8")
+            count = text.count(old_pattern)
+            per[str(fp)] = {"hits": count}
+            if count > 0:
+                ok = False
+        _add_item(items, "A5-08", "no_old_design_path_pattern",
+                  {"old_pattern": old_pattern, "expected_hits": 0},
+                  per, ok,
+                  detail=str({k: v for k, v in per.items() if v.get("hits", 0) > 0}) if not ok else "")
+    except Exception as exc:
+        _append_exception_item(items, "A5-08", "no_old_design_path_pattern",
+                               {"old_pattern": "design/<base_version>/", "expected_hits": 0}, exc)
+
+    # ── A5-09：verify_v11 M5 改动是纯删除（added == 0） ───────────────────────
+    # 基准 m4-ok；比较对象 HEAD（M5-5 提交后运行 Gate，HEAD 已包含归档/删除）
+    try:
+        cmd = ["git", "--no-pager", "diff", "--numstat", "m4-ok..HEAD", "--", "tools/verify_v11.py"]
+        rc, stdout, _ = _run_subprocess(cmd)
+        if rc != 0:
+            raise RuntimeError(f"git diff 失败; rc={rc}")
+        raw = stdout.strip()
+        parts = raw.split()
+        if not raw or not parts:
+            # 无输出说明两端该路径没有差异（文件未变），属意外状态
+            added = -1
+            passed = False
+        elif parts[0] == "-":
+            # git 对二进制或不可对比文件标注 "-\t-"，Python 文件不应出现；视为纯删除
+            added = 0
+            passed = True
+        elif parts[0].isdigit():
+            added = int(parts[0])
+            passed = added == 0
+        else:
+            added = -1
+            passed = False
+        _add_item(items, "A5-09", "verify_v11_m5_pure_deletion",
+                  {"added": 0},
+                  {"raw": raw, "added": added},
+                  passed,
+                  detail=f"added={added} 应为 0" if not passed else "")
+    except Exception as exc:
+        _append_exception_item(items, "A5-09", "verify_v11_m5_pure_deletion",
+                               {"added": 0}, exc)
+
+
 MILESTONE_RUNNERS: dict[str, Any] = {
     "M0": _run_m0_checks,
     "M1": _run_m1_checks,
     "M2": _run_m2_checks,
     "M3": _run_m3_checks,
     "M4": _run_m4_checks,
+    "M5": _run_m5_checks,
     # 后续里程碑在此表中各插入一行，不得修改已有条目
 }
 
