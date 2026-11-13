@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import base64
 import html
+import mimetypes
 import os
 import re
 import sys
@@ -30,8 +31,10 @@ import markdown
 MERMAID_CDN = "https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"
 MERMAID_CACHE = Path(tempfile.gettempdir()) / "mermaid.min.js"
 
-# 匹配 <img src="../<实验目录>/analysis/<文件>.png"> 或任意相对/绝对 .png 引用
-IMG_RE = re.compile(r'src="([^"]+\.png)"', re.IGNORECASE)
+# 匹配 <img src="..."> 中的 .png 引用（双引号或单引号，相对或绝对路径）
+# 注意：在 Markdown 转 HTML 之后调用，因为 md 的 ![](x.png) 只有在转成
+# <img src="x.png"> 后才能统一按 src 定位，否则漏掉全部 md 图片引用。
+IMG_RE = re.compile(r"""src=(?:"([^"]+?\.png)"|'([^']+?\.png)')""", re.IGNORECASE)
 MERMAID_RE = re.compile(r"```mermaid\s*\n(.*?)```", re.S)
 
 CSS = """
@@ -130,24 +133,40 @@ LIGHTBOX_SCRIPT = """
 """
 
 
-def embed_images(text: str, reports_dir: Path) -> str:
-    """将 md 中引用的图片以 base64 内嵌进 HTML，返回替换后的文本。
+def embed_images(body_html: str, reports_dir: Path) -> str:
+    """将 HTML 中 <img> 引用的本地图片以 base64 内嵌，返回替换后的 HTML。
 
-    相同源文件只编码一次，重复引用复用 data URI，避免文件膨胀。
+    必须在 Markdown 转 HTML 之后调用：md 的 ``![](x.png)`` 先被 python-markdown
+    转成 ``<img alt="" src="x.png" />``，此时按 src 定位文件才能覆盖全部引用。
+
+    路径解析顺序：相对报告目录 → 相对当前工作目录；同源文件只编码一次，
+    重复引用复用 data URI，避免文件膨胀。
     """
-    cache: dict[str, str] = {}
+    cache: dict[Path, str] = {}
 
     def repl(m: re.Match) -> str:
-        rel = m.group(1)
-        src = (reports_dir / rel).resolve()
-        if not src.exists():
+        rel = m.group(1) or m.group(2)
+        if rel.lower().startswith("data:"):
+            return m.group(0)
+        src: Path | None = None
+        for candidate in (reports_dir / rel, Path(rel)):
+            try:
+                resolved = candidate.resolve()
+            except OSError:
+                continue
+            if resolved.is_file():
+                src = resolved
+                break
+        if src is None:
             print(f"  [WARN] 源图片不存在: {rel}")
             return m.group(0)
         if src not in cache:
-            cache[src] = base64.b64encode(src.read_bytes()).decode("ascii")
-        return f'src="data:image/png;base64,{cache[src]}"'
+            mime = mimetypes.guess_type(src.name)[0] or "image/png"
+            encoded = base64.b64encode(src.read_bytes()).decode("ascii")
+            cache[src] = f"data:{mime};base64,{encoded}"
+        return f'src="{cache[src]}"'
 
-    out = IMG_RE.sub(repl, text)
+    out = IMG_RE.sub(repl, body_html)
     total = sum(len(v) for v in cache.values())
     print(f"  内嵌图片 {len(cache)} 个唯一源 (base64 共 {total / 1024 / 1024:.1f} MB)")
     return out
@@ -218,13 +237,14 @@ def convert_one(md_path: Path, reports_dir: Path, output_dir: Path, enable_merma
     title = m.group(1).strip() if m else md_path.stem
 
     print(f"==> 处理 {md_path.name}")
-    text = embed_images(text, reports_dir)
     text, mermaid_parts = extract_mermaid(text)
     if mermaid_parts:
         print(f"  提取 mermaid 流程图 {len(mermaid_parts)} 个")
 
     body = markdown.markdown(text, extensions=["tables", "fenced_code", "sane_lists"])
     body = restore_mermaid(body, mermaid_parts)
+    # 图片内嵌必须在 markdown 转换之后，否则 ![](x.png) 语法无法被匹配。
+    body = embed_images(body, reports_dir)
 
     mermaid_js = None
     if enable_mermaid and mermaid_parts:
