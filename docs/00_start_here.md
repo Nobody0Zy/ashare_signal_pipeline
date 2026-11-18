@@ -54,6 +54,7 @@ python run_experiment_pipeline.py --mode smoke --step 1 --config <配置> --stat
 | 搞清数据契约 | `01_pipeline_contract.md` |
 | 判断某步是否合格 | `07_step_acceptance_criteria.md` |
 | 避免已知坑 | `03_pitfalls.md` |
+| 查潜在风险与待修事项 | `16_potential_risks.md` |
 | 配置 tsfresh / LightGBM | `05_framework_mechanisms.md` |
 | 收尾一个谱系 | `06_closeout_playbook.md` |
 
