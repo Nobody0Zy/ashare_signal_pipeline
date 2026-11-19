@@ -160,7 +160,7 @@ $evNew = "kernel_v11/check/kernel_v11_20261102_demo_new_6e499192"
 | :--- | :---: | :--- | :--- |
 | `analyze_experiment_results.py` | 修改 | 新增 `_collect_label_span_stats()`（条件必填键 `label_span_stats`，见 design §3.2.1）；新增 `_collect_input_identity()`、`_collect_fingerprints()`、`_collect_buffer()`、`_collect_feature_funnel()`、`_collect_clip_and_target_stats()`、`_collect_artifact_sizes()`、`_collect_runs()`、`_collect_smoke_vs_full()`、`_collect_workload()`、`_collect_param_effective()`、`_collect_determinism()`、`_collect_robustness()`；`render_summary_json()` 输出上述键；新增 CLI `--emit-summary-only` | §3.2 |
 | `analyze_experiment_results.py` | 修改 | `SCHEMA_VERSION = "report-summary/1"` 常量 + 写入 `schema_version` | §3.1 |
-| `tools/verify_reports.py` | 新增 | `main()` / `run_checks(analysis_dir, baseline, milestone, only)` / `add_item(id, name, expected, actual, passed, detail)` / `write_report()`；实现 A-1..A-4 | §8.1–§8.3 |
+| `tools/verify_reports.py` | 新增 | `main()` / `run_checks(analysis_dir, baseline, milestone, only)` / `add_item(id, name, expected, actual, passed, detail)` / `write_report()`；实现 A-1..A-4。**只依赖标准库 + pandas，不得 import `report/` 或 `pipeline/`**（M0 时 `report/` 尚不存在） | §8.1–§8.3 |
 | `configs/report/executive_default.yaml` | 新增 | **按 design 附录 A 全文入库**（M5 直接消费，不再改动） | 附录 A |
 | `.gitignore` | 修改 | 增 `configs/report/executive_override.yaml` | §4.3.2 |
 
@@ -216,7 +216,7 @@ Copy-Item "outputs/$evNew/analysis/experiment_analysis_report.md" "$env:TEMP\pre
 | M0-10 | 渲染输出与 M0 前逐字节相同（除"生成时间"行） |
 | M0-11 | 参数错误 exit 2 |
 | M0-12 | `label_span_stats` 存在，`n_gt_60d == 3634`、`max_days == 2478`、`policy == "uncapped"`（demo_new） |
-| M0-13 | `run_env` 六字段齐全（`git_commit` 非空、五个依赖版本非 null） |
+| M0-13 | `run_env` 六字段齐全（`git_commit` 非空；`python`/`pandas`/`numpy`/`scipy`/`lightgbm`/`tsfresh` 六个版本字段非 null） |
 | M0-14 | `verify_report_M0.json` 的 `items` 长度 == 13（本行不计入 items） |
 
 ### 2.5 回滚点
@@ -241,6 +241,7 @@ Copy-Item "outputs/$evNew/analysis/experiment_analysis_report.md" "$env:TEMP\pre
 | `report/common.py` | 新增 | `build_toc`、`render_table`、`details_block`、`figure`、`section`、`explain_simple` | §6 |
 | `report/_legacy.py` | 新增 | 完整复制改造前的 `render_markdown_report()` 与 `render_leadership_html()` 函数体（**仅供 golden 比对与回滚，M6 删除**） | §7 回滚点 |
 | `report/experiment.py` | 新增 | `render_experiment(summary) -> str`，M1 阶段内容 == `_legacy.render_markdown_report` | §4.2 |
+| `tools/build_reports.py` | 新增 | 薄 CLI：`--manifest/--experiment-version`、`--types`（M1 仅 `experiment`）、`--layout {v1,v2}`、`--dry-run`；调用 `report.render_all` | §2.2 |
 | `analyze_experiment_results.py` | 修改 | `render_markdown_report` 改为 `report.experiment.render_experiment` 的薄包装；删除其内部实现（保留 git 历史） | §2.2、§2.3 |
 
 补充约定：
@@ -307,9 +308,9 @@ Copy-Item "outputs/$evNew/analysis/experiment_summary_for_leadership.html" "$env
 | `report/datacard.py` | 新增 | `render_datacard(summary) -> str`，输出 D0–D5 | §4.5 |
 | `report/reference.py` | 新增 | `render_reference(summary) -> str`，输出 R1–R6 | §4.6 |
 | `report/build.py` | 新增 | `write_all()`、`resolve_external_paths()`；写 `data/reference/**` | §5.2 |
-| `tools/build_reports.py` | 新增 | `--types` 支持 `datacard,reference`；`--dry-run` | §2.2 |
+| `tools/build_reports.py` | 修改 | `--types` 支持 `datacard,reference`（文件已在 M1 创建） | §2.2 |
 | `data/reference/<sid>/datacard.md` | 运行期产物 | 由命令生成，**不得手工编辑** | §4.5 |
-| `data/reference/_kernel/v1.1.0/reference.md` | 运行期产物 | 同上 | §4.6 |
+| `data/reference/_kernel/<base_version>/reference.md` | 运行期产物 | 目录名 = `base_version`（如 `kernel_v11`），不是 tag | §4.6 |
 
 补充约定：
 
@@ -329,7 +330,7 @@ Copy-Item "outputs/$evNew/analysis/experiment_summary_for_leadership.html" "$env
 # 期望六个 D 节齐全；label rows == 6
 
 # M2-3 参考页
-& $py -c "import pathlib;p=pathlib.Path('data/reference/_kernel/v1.1.0/reference.md');t=p.read_text(encoding='utf-8');print([s for s in ['## R1','## R2','## R3','## R4','## R5','## R6'] if s in t])"
+& $py -c "import pathlib;p=pathlib.Path('data/reference/_kernel/kernel_v11/reference.md');t=p.read_text(encoding='utf-8');print([s for s in ['## R1','## R2','## R3','## R4','## R5','## R6'] if s in t])"
 # 期望六节齐全
 
 # M2-4 Gate
@@ -472,7 +473,7 @@ Copy-Item "outputs/$evNew/analysis/experiment_summary_for_leadership.html" "$env
 | M4-9 | A-27 X9 四项有数字或"未计算" |
 | M4-10 | X1.2 构造逻辑为 5 行表格，含"为什么这样定"列 |
 | M4-11 | X1.2 含按年分布表与样本数据处理表 |
-| M4-12 | X4 漏斗 324→20→100→50→+1=51 自洽 |
+| M4-12 | X4 漏斗与 `feature_funnel` 自洽（demo_new 期望 324→20→100→50→+1=51） |
 | M4-13 | X10 四小节齐全，X10.2 ≥8 行，X10.3 ≥3 行 |
 | M4-14 | A-19 不含 `nan_filled` / `inf_replaced` |
 | M4-15 | A-21 `> 简单说：` ≤5 且无新数字 |
@@ -500,8 +501,8 @@ Copy-Item "outputs/$evNew/analysis/experiment_summary_for_leadership.html" "$env
 | `report/executive.py` | 新增 | `render_executive(summary, spec) -> str`；自包含 HTML（图片 base64） | §4.3.1 |
 | `configs/report/executive_default.yaml` | 校验 | 不改内容；仅断言 4 个 `locked` KPI 与 5 图顺序存在 | 附录 A |
 | `report/build.py` | 修改 | `write_manifest()`；alias 生成；`layout` 开关（语义见 design §2.2.1） | §2.4、§5.2 |
-| `pipeline/ensemble/bagging.py` | 修改 | 新增 `_pick_report()`；替换 1290/1292/2689/2699/2888/2889 六处 | §5.3 |
-| `tools/build_reports.py` | 修改 | `--layout`、`--spec` 参数 | §2.2 |
+| `pipeline/ensemble/bagging.py` | 修改 | 新增**模块级** `_pick_report(analysis_dir, type_, fmt) -> str`（紧随 `_rel()`）；替换 1290/1292/2689/2699/2888/2889 六处 | §5.3 |
+| `tools/build_reports.py` | 修改 | `--layout`、`--spec`；**M5 起 `--layout` 默认值由 `v1` 改为 `v2`** | §2.2、§10 E2 |
 
 补充约定：
 
@@ -552,7 +553,7 @@ Rename-Item "outputs/$evNew/analysis/reports/manifest.json.bak" "manifest.json"
 | M5-14 | 阈值表用「保留前 N%」措辞 |
 | M5-15 | 风险提示独立成行且在行动项之前 |
 | M5-16 | 分页逻辑：追加 3 个 KPI 后仍能渲染 |
-| M5-17 | `bagging.py` 不再含 `experiment_analysis_report.md` 字面量（除回退分支） |
+| M5-17 | `bagging.py` 含 `experiment_analysis_report.md` 的行数 ≤ 2，且均位于 `_pick_report` 函数体内 |
 | M5-18 | Gate items == 18 |
 
 ### 7.5 回滚点
@@ -603,7 +604,7 @@ foreach ($ev in @($evOld, $evNew)) {
 | M6-1 | 双路径各产出 3 报告 + 1 数据卡 + 1 参考页 |
 | M6-2 | 双路径 Gate 均 exit 0 |
 | M6-3 | `compare_runs` 口径不同时只输出说明，不输出指标 Δ |
-| M6-4 | `compare_runs` 口径相同时输出 6 项 Δ |
+| M6-4 | `compare_runs` 口径相同时输出 Δ 表，至少含 6 字段：`sample_count`/`valid_samples`/`best_iteration`/`mae`/`spearman`/`pearson` |
 | M6-5 | `docs/10_architecture.md` 含 `report/` 与 3 个新脚本 |
 | M6-6 | `README.md` 含报告章节与命令 |
 | M6-7 | `docs/16_potential_risks.md` PR-002 已标记闭环 |

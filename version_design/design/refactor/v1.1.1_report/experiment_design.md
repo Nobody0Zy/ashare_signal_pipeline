@@ -230,7 +230,7 @@ flowchart TD
 | `report/executive.py` | `render_executive(summary: dict, spec: dict) -> str` | K1–K6，自包含 HTML | ≤ 360 |
 | `report/spec.py` | `load_spec(default_path: Path, override_path: Path \| None) -> dict`；`resolve_placeholders(spec, summary) -> dict`（未知占位符抛 `SpecError`） | 规格解析 | ≤ 220 |
 | `report/build.py` | `write_all(outputs: dict[str, str], out_dir: Path, aliases: bool) -> dict[str, Path]`；`write_manifest(paths, summary_path, layout) -> Path` | 落盘与清单 | ≤ 240 |
-| `report/_legacy.py` | `render_markdown_report(...)`（改造前实现的完整副本） | M1 的 golden 基线与回滚保障；M6 删除 | ≤ 460 |
+| `report/_legacy.py` | `render_markdown_report(...)` 与 `render_leadership_html(...)`（改造前实现的完整副本） | M1 的 golden 基线与回滚保障；M6 删除 | ≤ 620 |
 
 新增 `tools/` 脚本：
 
@@ -267,7 +267,7 @@ flowchart TD
 | :---: | :--- | :--- |
 | 1 | **单一事实源**：三份报告只允许读 `report_summary.json` 与 `reports/manifest.json`，禁止各自读 CSV/state | A-7（渲染函数入参只有 `summary`；code review + `rg` 扫描 `pd.read_csv`） |
 | 2 | **零计算**：渲染器不做统计计算，只做格式化与派生（占比、Δ、排序取前 N） | A-7 |
-| 3 | **幂等**：同一事实表重复渲染，除 `generated_at` 外内容逐字节一致 | A-6 |
+| 3 | **幂等**：同一事实表重复渲染，除 `generated_at` 与头部「生成时间」行外内容逐字节一致 | A-6 |
 | 4 | **可判定**：每个结论句后必须能在事实表找到对应字段；无来源数字不写 | A-20（占位符可解析） |
 | 5 | **只读输入**：渲染阶段不写 `data/`、`models/`、`outputs/<ev>` 根目录 | code review（`write_all` 只写 `reports/`、`assets/`、`tables/`、`data/reference/`） |
 | 6 | **不得内联运行对比** | A-22 |
@@ -292,13 +292,13 @@ flowchart TD
     {"type": "executive", "audience": "legacy", "format": "html", "path": "experiment_summary_for_leadership.html", "deprecated": true, "alias_of": "reports/executive.html", "removal_version": "v1.2"}
   ],
   "external": [
-    {"type": "datacard", "path": "../../../../data/reference/<sid>/datacard.md"},
-    {"type": "reference", "path": "../../../../data/reference/_kernel/v1.1.0/reference.md"}
+    {"type": "datacard", "path": "data/reference/<sid>/datacard.md"},
+    {"type": "reference", "path": "data/reference/_kernel/<base_version>/reference.md"}
   ]
 }
 ```
 
-- `path` 相对 `analysis/`；`external.path` 相对 `analysis/reports/`（允许跳出 outputs）。
+- `reports[].path` 相对 `analysis/`；`external[].path` 为**仓库相对路径**（正斜杠），与 `datacard_path` / `reference_path` 一致。
 - 消费方按 `audience` 选取；`deprecated: true` 的条目仅为兼容，v1.2 删除。
 
 ---
@@ -368,7 +368,7 @@ flowchart TD
 | `group_time_concentration.by_group[]` | list | `{group, year, share}`（按 `normalize="index"`） |
 | `group_time_concentration.max_share` / `.group_of_max` | float / int | — |
 | `monthly_returns[]` | list | `{ym, mean, count, win_rate}` |
-| `datacard_path` / `reference_path` | str | 相对 `analysis/` 的路径 |
+| `datacard_path` / `reference_path` | str | **仓库相对路径（正斜杠）**，如 `data/reference/<sid>/datacard.md`；消费方按仓库根解析 |
 
 ### 3.3 run_mode 聚合规则
 
@@ -670,7 +670,7 @@ outputs/<ev>
 | :--- | :--- |
 | 切分逻辑 | 全量：按 `signal_date` 严格时间切；冒烟：随机 70/15/15（**必须标注「无时间隔离」**） |
 | 策略边界 | `train_end` / `val_start` / `val_end` / `test_start` / `buffer_trading_days` / `enforce_buffer` |
-| buffer 实测 | 要求 60，实测 73 / 63，状态 `enforced` |
+| buffer 实测 | 要求 `<buffer.required>`，实测 `<buffer.train_val_days>` / `<buffer.val_test_days>`，状态 `<buffer.status>` |
 | 切分后统计 | 每集合：行数、占比、日期范围 |
 | **target 分布** | 每集合 **min / P25 / P50 / P75 / max / IQR / 胜率**（3 行 × 7 列） |
 | **分布图 ×2** | `target_raw`（显示按 0.1%/99.9% 裁切，图注写明"统计量未裁"）+ `target`（缩尾后直绘，不裁切） |
@@ -680,9 +680,10 @@ outputs/<ev>
 **固定文案（漂移提示）**
 
 ```markdown
-> 提示：<split> 中位数 <x>%，训练集 <y>%，相差 <d> 个百分点<，超过 1pp 经验阈值，建议关注分布差异|（未超阈）>。
-> 阈值说明：1pp / 5pp 为本项目**经验约定，不是统计检验结果**（无 p 值、非自适应），
+> 提示：<split> 中位数 <x>%，训练集 <y>%，相差 <d> 个百分点<，超过 <median_pp>pp 经验阈值，建议关注分布差异|（未超阈）>。
+> 阈值说明：<median_pp>pp / <win_rate_pp>pp 为本项目**经验约定，不是统计检验结果**（无 p 值、非自适应），
 > 仅用于提醒读者核对，不构成"存在分布漂移"的结论。
+> （`<median_pp>` / `<win_rate_pp>` 由 `drift_hint.thresholds` 注入，禁止写死。）
 ```
 
 **五数表的固定读法（图下/表下必附）**
@@ -815,11 +816,11 @@ sections:
 | `engineering.md` | 业务结论、投资建议、收益解读 |
 | `experiment.md` | 文件大小清单、耗时明细、复现命令行、git commit、采样参数表全文 / 标签公式全文 / 技术指标公式（属 T2/T3，必须引用） |
 | `datacard.md` | 本次运行的行数、指标、耗时（属 T1） |
-| `reference.md` | 任何具体实验的数字 |
+| `reference.md` | 任何**本次实验**的数字（行数、指标、耗时、结果）；算法定义中的常量与配置默认值（如 `rsi_period=14`）不受此限 |
 
 ### 4.5 `datacard.md`（T2 唯一载体）
 
-路径：`data/reference/<samples_id>/datacard.md`。与实验无关，仅在样本集或标签集变化时重建。
+路径：`data/reference/<samples_id>/datacard.md`；`holding_file` 模式无 `samples_id` → 写 `data/reference/_legacy_holding/datacard.md`，D0 标注「不适用（样本来自持仓表）」。与实验无关，仅在样本集或标签集变化时重建。
 
 | 章节 | 内容 | 数据来源 |
 | :--- | :--- | :--- |
@@ -849,7 +850,7 @@ sections:
 
 ### 4.6 `reference.md`（T3 唯一载体）
 
-路径：`data/reference/_kernel/<kernel_version>/reference.md`。
+路径：`data/reference/_kernel/<base_version>/reference.md`；`<base_version>` = `resolved_params.experiment.base_version`（如 `kernel_v11`），不是 git tag。
 
 | 章节 | 内容 | 内容来源（实施时照抄/摘写，不得自创） |
 | :--- | :--- | :--- |
@@ -1013,7 +1014,11 @@ data/reference/_kernel/<kernel_version>/reference.md
 2. 禁止只写"结果如图"。
 3. 100 组图配四句读法（§4.3.1）。
 4. 领导版不得删减 K3 的 5 图，只允许分页。
-5. **图片路径统一写 `assets/<file>.png`**；渲染器解析到 `analysis/assets/`，并断言文件存在（A-23）。禁止裸文件名。
+5. **Markdown 中的图片路径统一写 `../assets/<file>.png`**，表格链接写 `../tables/<file>.csv`：
+   - 报告位于 `analysis/reports/`，`../assets/x.png` 在 Markdown 预览器中可直达 `analysis/assets/x.png`；
+   - `md_report_to_html.py --reports-dir analysis/reports` 也能正确解析同一相对路径；
+   - 禁止裸文件名（如 `monotonic_target_test.png`）——子目录下必然裂图（A-23）。
+   - 例外：`executive.html` 由 `report/executive.py` 直接 base64 内嵌，规格里的 `source: assets/<file>.png` 相对 `analysis/` 解析。
 
 ### 6.6 降噪
 
@@ -1078,26 +1083,28 @@ data/reference/_kernel/<kernel_version>/reference.md
 
 > 与 v1.1 的关系：`tools/verify_v11.py` 已在 v1.1 M5 归档，**不得**在本迭代复用它做报告验收；它只用于 M6 的"回归确认"（可选）。
 
-### 8.2 断言清单（A-1 … A-28）
+### 8.2 断言清单（A-1 … A-29）
+
+**执行范围规则**：默认对每条实验路径都执行；例外三种——① 绑定 demo_new 锚点的（A-4）；② 仅 `samples` 模式有意义的（A-13、A-29）；③ 仅 `layout v2` 存在的（A-2、A-8）。被跳过的断言在 `items` 中记 `pass: true, detail: "skipped: <reason>"`，双路径合计校验只在 M6 做（见 plan §9）。
 
 | 编号 | 断言 | 里程碑 |
 | :--- | :--- | :---: |
 | A-1 | `report_summary.json` 含全部必填键，`schema_version` 匹配 | M0 |
 | A-2 | `reports/manifest.json` 存在，含 3 份权威报告；`source_summary_sha256` 与事实表一致 | M5 |
 | A-3 | 三份报告均存在且非空；`executive.html` 无外链 `<img>` | M5 |
-| A-4 | 数值锚点：`baseline.report_anchors` 的 **9 类**指标在 `experiment.md` 中可检索且一致：① 五分组 `target_raw_mean`×5 ② 中位数二分 3 值 ③ 阈值 5 档各 1 值 ④ 100 组秩相关×3 ⑤ `count_over_0_1` ⑥ `share_gap_le_horizon` ⑦ `max_share` ⑧ 月度正收益占比 ⑨ 特征重要性 top1 的 `gain_share` | M4 |
+| A-4 | **仅当 `experiment_version == baseline.experiments.demo_new.experiment_version` 时执行**；其余实验记 `skipped`。数值锚点：`baseline.report_anchors` 的 **9 类**指标在 `experiment.md` 中可检索且一致：① 五分组 `target_raw_mean`×5 ② 中位数二分 3 值 ③ 阈值 5 档各 1 值 ④ 100 组秩相关×3 ⑤ `count_over_0_1` ⑥ `share_gap_le_horizon` ⑦ `max_share` ⑧ 月度正收益占比 ⑨ 特征重要性 top1 的 `gain_share` | M4 |
 | A-5 | 禁止词：`executive.html` 不含 `step_`/`duration`/`learning_rate`/`buffer`/`.csv` | M5 |
-| A-6 | 幂等：连跑两次，除 `generated_at` 外三份报告 sha256 一致 | M1 起每里程碑 |
+| A-6 | 幂等：连跑两次，**剔除含「生成时间」的行与 `generated_at` 键**后，三份报告 sha256 一致 | M1 起每里程碑 |
 | A-7 | 单一事实源：`report/*.py` 内不出现 `read_csv` / `read_parquet` / `json.load`（除 `report/load.py`） | M1 |
 | A-8 | alias：旧名文件存在且内容与 `reports/` 对应文件一致；清单标 `deprecated` | M5 |
 | A-9 | 长度提示：超 `baseline.report_contracts.constants`（`length_hint_engineering`=400 / `length_hint_experiment`=700）时只打印 `[HINT]`，不截断 | M3/M4 |
 | A-10 | 每章首句为 `> 本章结论：`，条数 == 章节数 | M3/M4 |
 | A-11 | v1.1 字段必现：`input_mode`/`coupling_mode`/`samples_id`/`label_name`/`label_non_null_ratio`/`dropped_no_target` 六值与 step1 state 逐值一致 | M4 |
 | A-12 | 切分必现：`buffer_train_val_days`、`buffer_val_test_days` 实测值（73/63）与状态出现 | M4 |
-| A-13 | 标签清单：`datacard.md` §D4 条数 == `_index.json` 键数 | M2 |
+| A-13 | 标签清单（**仅 `input_mode == samples`**）：`datacard.md` §D4 条数 == `_index.json` 键数；`holding_file` 记 `skipped` | M2/M6 |
 | A-14 | 无错误描述：`holding_file` 与 `samples` 两份报告**不得共用**同一句步骤1 描述 | M4 |
 | A-15 | 数据卡/参考页存在且被引用：`experiment.md` 至少 1 处 `数据卡` + 1 处 `参考页` 引用，文件存在 | M4 |
-| A-16 | 无重复定义：以下 **10 个键**在「报告 + 数据卡 + 参考页」中合计出现次数 ≤ 1：`ma_period`、`std_mult`、`min_history_days`、`max_samples`、`num_leaves`、`learning_rate`、`early_stopping_rounds`、`buffer_trading_days`、`corr_threshold`、`max_features` | M4/M5 |
+| A-16 | 无重复**数值**定义：以下 10 个键的**赋值**在 `experiment.md` 与 `datacard.md` 中不得同时出现（`reference.md` 按 §4.4 不含任何实验数字，故不参与）：`ma_period`、`std_mult`、`min_history_days`、`max_samples`、`num_leaves`、`learning_rate`、`early_stopping_rounds`、`buffer_trading_days`、`corr_threshold`、`max_features`。实现：正则 `键[^0-9]{0,12}\d`，命中即 fail | M4/M5 |
 | A-17 | 极值与提醒必现：X2 含每集合 min/max/P50/IQR + 漂移提示段（含"经验约定"） | M4 |
 | A-18 | 允许冗余同值：K1 的 KPI 与 experiment 对应字段逐值相等；E7 smoke 指标与 `runs.smoke` 相等 | M5 |
 | A-19 | 禁止冗余不重复：`engineering.md` 不含漏斗/buffer 数值；`experiment.md` 不含 `nan_filled`/`inf_replaced` 数值 | M3/M4 |

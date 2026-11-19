@@ -31,7 +31,13 @@
 ```powershell
 $py = "C:/ProgramData/anaconda3/envs/factor311/python.exe"
 $base = "version_design/design/refactor/v1.1.1_report/baseline_v1.1.0.json"
+
+# 中文输出在 Windows 默认 GBK 控制台会乱码；本会话内统一 UTF-8
+$env:PYTHONIOENCODING = "utf-8"
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
 ```
+
+> 所有断言比较都在**文件层**（UTF-8）进行；上面的设置只影响控制台回显。若看到乱码，先确认这两行已执行，再判断是否为真实差异。
 
 ### 1.2 开工前必须确认的三件事
 
@@ -147,7 +153,18 @@ git tag --list "v1.1.0"
 
 按 `experiment_design.md` 开头的「阅读方式」表。**不要预读下一个里程碑的内容**——那会导致一次性大改，破坏逐里程碑可回滚性。
 
-### 3.3 报告产物的幂等要求
+### 3.3 部分失败与重跑（稳健性）
+
+| 情形 | 允许的做法 | 禁止的做法 |
+| :--- | :--- | :--- |
+| 某里程碑中途失败 | 修复后**从同一里程碑重跑**验收命令；`reports/` 下的产物可被覆盖（幂等） | 删除 `outputs/<ev>/analysis` 重建 |
+| `report_summary.json` 缺新字段 | 重跑 `analyze_experiment_results.py --emit-summary-only` | 手工编辑 JSON |
+| 渲染结果与上次不同 | 先跑 A-6 幂等检查定位差异来源 | 直接接受差异 |
+| 报告图片裂图 | 检查路径是否为 `../assets/...`、文件是否存在 | 把图片复制进 `reports/` |
+| 中途改了 `baseline` | **立即回滚**；锚点不可改 | 用新数值让断言通过 |
+| 同一 ev 有多个 smoke state | 取 `updated_at` 最新，并在报告注明重跑次数 | 取文件名排序第一个 |
+
+### 3.4 报告产物的幂等要求
 
 同一 `report_summary.json` 重复渲染，除 `generated_at`（及头部"生成时间"行）外必须逐字节一致。每次改动渲染逻辑后都要跑一次幂等检查（plan 的 `A-6` 命令）。
 

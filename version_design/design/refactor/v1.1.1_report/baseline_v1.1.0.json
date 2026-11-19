@@ -225,17 +225,18 @@
         }
       },
       "artifact_count": 52,
-      "artifact_bytes": 2815488000,
+      "artifact_bytes": 2880933817,
       "label_span_stats": {
         "n_valid": 392369,
         "median_days": 29,
-        "p99_days": 60,
+        "p99_days": 56,
         "max_days": 2478,
         "share_gt_60d": 0.009262,
         "n_gt_60d": 3634,
         "longest_pause_rows": 1628,
         "policy": "uncapped"
-      }
+      },
+      "artifact_bytes_note": "measured 2026-11-19 (analysis/reports absent)"
     }
   },
   "report_contracts": {
