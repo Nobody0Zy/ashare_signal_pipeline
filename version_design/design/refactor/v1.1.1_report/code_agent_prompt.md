@@ -106,6 +106,13 @@ git tag --list "v1.1.0"
 | B7 | 发现必须改 step 语义 | 例如"要修 `holding_clean` 覆盖" | 停止。该问题属 PR-001 / v1.2 |
 | B8 | 样本集或标签需重建 | `data/prepared/**` 缺失或 hash 不符 | 停止，报告中说明需人工先跑 `build_samples/build_labels` |
 
+**B8 的自检命令**（审计阶段执行一次，结果贴进审计报告）：
+
+```powershell
+& $py -c "import json,hashlib,pathlib,numpy as np,pandas as pd;sid='bollinger_breakout_080c9262_294b0504';m=json.load(open(f'data/prepared/{sid}/manifest.json',encoding='utf-8'));s=pd.read_parquet(f'data/prepared/{sid}/samples.parquet');h=hashlib.sha256(np.sort(s['sample_id'].to_numpy().astype('<i8')).tobytes()).hexdigest()[:16];print('hash_ok',h==m['samples_set_hash'],'rows',len(s),m['rows']);print('labels',sorted(p.name for p in pathlib.Path(f'data/labels/{sid}').glob('*.parquet')))"
+# 期望 hash_ok True、rows 相等、labels 含 6 个 parquet
+```
+
 `BLOCKED.md` 只写四项：现象（命令与回显）、涉及章节（§ 编号）、为什么无法在本计划内解决、建议的两种修法。
 
 ### 2.4 审计报告（阶段 A 必须输出）
@@ -128,7 +135,7 @@ git tag --list "v1.1.0"
 3. 只改白名单内的文件
 4. 对照基线：git diff --stat 应只多出白名单路径
 5. 按 plan 的验收命令逐条执行（小 → 大）
-6. 跑 tools/verify_reports.py，确认 exit 0 且 items 数 == baseline.expected_item_counts[M<k>]
+6. 跑 tools/verify_reports.py --milestone M<k>，确认 exit 0 且 items 数 == baseline.expected_item_counts[M<k>]
 7. exit 0 → git add <白名单路径，逐条列出>（不用 -A / -a）
 8. git commit -m "<type>: <subject>"
 9. git tag m<k>-ok → 进入 k+1；失败 → §4 止损

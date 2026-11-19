@@ -42,7 +42,7 @@ M6  文档与 demo 收尾                        文档 + 双路径 demo + compa
 每个里程碑的通过与否，**只**由以下命令的 exit code 决定：
 
 ```powershell
-& $py tools/verify_reports.py --analysis-dir "outputs/<ev>/analysis" `
+& $py tools/verify_reports.py --milestone M<k> --analysis-dir "outputs/<ev>/analysis" `
     --baseline "version_design/design/refactor/v1.1.1_report/baseline_v1.1.0.json" `
     --report "$env:TEMP\verify_report_M<k>.json"
 ```
@@ -90,7 +90,7 @@ M6  文档与 demo 收尾                        文档 + 双路径 demo + compa
 | G1 | 每里程碑「文件白名单」表 | 本文件 §2–§8 各「2.2 具体动作」表首列 | 每里程碑 `git diff --stat` 相对基线只多白名单路径（prompt §3.1 第 4 步） |
 | G2 | 逐文件「动作 + 改什么（函数/键）+ 设计依据」三列 | 本文件 §2.2、§3.2 … §8.2 | 审计阶段逐条核对 |
 | G3 | 12 个模块的公开符号与签名 | design §2.2 表 | 断言 A-7（渲染器不读文件）+ import 冒烟 |
-| G4 | 37 个必填键 + 45 个新字段的 JSON 路径与口径 | design §3.1、§3.2 | A-1 + A-11 + A-12 |
+| G4 | 38 个必填键 + 45 行（含子键）的 JSON 路径与口径 | design §3.1、§3.2 | A-1 + A-11 + A-12 |
 | G5 | X9 四项计算定义（含 `idxs` 解码规则） | design §3.4 | A-27 + 与 `baseline.report_anchors.robustness` 比对 |
 | G6 | 3 个 CLI 参数表 + exit code 3 档 | design §2.2 表、§8.3 | 参数错误用例（exit 2）纳入 M0 验收 |
 | G7 | 降级矩阵（6 行） | design §3.5 | 缺字段用例：构造 `report_summary` 去掉 `smoke_vs_full` → 渲染不崩 |
@@ -160,8 +160,8 @@ $evNew = "kernel_v11/check/kernel_v11_20261102_demo_new_6e499192"
 | :--- | :---: | :--- | :--- |
 | `analyze_experiment_results.py` | 修改 | 新增 `_collect_input_identity()`、`_collect_fingerprints()`、`_collect_buffer()`、`_collect_feature_funnel()`、`_collect_clip_and_target_stats()`、`_collect_artifact_sizes()`、`_collect_runs()`、`_collect_smoke_vs_full()`、`_collect_workload()`、`_collect_param_effective()`、`_collect_determinism()`、`_collect_robustness()`；`render_summary_json()` 输出上述键；新增 CLI `--emit-summary-only` | §3.2 |
 | `analyze_experiment_results.py` | 修改 | `SCHEMA_VERSION = "report-summary/1"` 常量 + 写入 `schema_version` | §3.1 |
-| `tools/verify_reports.py` | 新增 | `main()` / `run_checks(analysis_dir, baseline, only)` / `add_item(id, name, expected, actual, passed, detail)` / `write_report()`；实现 A-1..A-4 | §8.1–§8.3 |
-| `configs/report/executive_default.yaml` | 新增 | 首版规格（M5 才被消费，M0 先入库避免 M5 临时发明） | §4.3.2 |
+| `tools/verify_reports.py` | 新增 | `main()` / `run_checks(analysis_dir, baseline, milestone, only)` / `add_item(id, name, expected, actual, passed, detail)` / `write_report()`；实现 A-1..A-4 | §8.1–§8.3 |
+| `configs/report/executive_default.yaml` | 新增 | **按 design 附录 A 全文入库**（M5 直接消费，不再改动） | 附录 A |
 | `.gitignore` | 修改 | 增 `configs/report/executive_override.yaml` | §4.3.2 |
 
 补充约定：
@@ -178,7 +178,7 @@ $evNew = "kernel_v11/check/kernel_v11_20261102_demo_new_6e499192"
 # M0-1 重算事实表（两个 demo 各一次）
 & $py analyze_experiment_results.py --manifest "outputs/$evOld/metadata/experiment_manifest.json" --emit-summary-only
 & $py analyze_experiment_results.py --manifest "outputs/$evNew/metadata/experiment_manifest.json" --emit-summary-only
-# 期望：exit 0；report_summary.json 含 schema_version 且 37 个必填键齐全
+# 期望：exit 0；report_summary.json 含 schema_version 且 38 个必填键齐全
 
 # M0-2 字段抽查（demo_new）
 & $py -c "import json;d=json.load(open(r'outputs/$evNew/analysis/report_summary.json',encoding='utf-8'));print({k:d[k] for k in ['schema_version','run_modes']});print(d['input_identity']);print(d['buffer']);print(d['feature_funnel'])"
@@ -192,11 +192,11 @@ Copy-Item "outputs/$evNew/analysis/experiment_analysis_report.md" "$env:TEMP\pre
 # 期望 equal: True（M0 不改变报告内容）
 
 # M0-4 参数错误 exit 2
-& $py tools/verify_reports.py --analysis-dir "nonexistent" --baseline $base --report "$env:TEMP\x.json"
+& $py tools/verify_reports.py --milestone M0 --analysis-dir "nonexistent" --baseline $base --report "$env:TEMP\x.json"
 # 期望 exit 2
 
 # M0-5 里程碑 Gate
-& $py tools/verify_reports.py --analysis-dir "outputs/$evNew/analysis" --baseline $base --report "$env:TEMP\verify_report_M0.json"
+& $py tools/verify_reports.py --milestone M0 --analysis-dir "outputs/$evNew/analysis" --baseline $base --report "$env:TEMP\verify_report_M0.json"
 # 期望 exit 0，items == 12
 ```
 
@@ -205,7 +205,7 @@ Copy-Item "outputs/$evNew/analysis/experiment_analysis_report.md" "$env:TEMP\pre
 | # | 断言 |
 | :---: | :--- |
 | M0-1 | `schema_version == "report-summary/1"` |
-| M0-2 | 37 个必填键齐全；缺一即 fail |
+| M0-2 | 38 个必填键齐全；缺一即 fail |
 | M0-3 | `input_identity` 六值与 step1 state 逐值相等（demo_new） |
 | M0-4 | `buffer` 三值与 step5 state 相等 |
 | M0-5 | `feature_funnel` 六值自洽（`candidates == raw - zero_var`；`consistency_ok == true`） |
@@ -271,7 +271,7 @@ Copy-Item "outputs/$evNew/analysis/experiment_summary_for_leadership.html" "$env
 & $py -c "import pathlib,re;bad=[(p.name,i+1,l) for p in pathlib.Path('report').glob('*.py') if p.name not in ('load.py','schema.py') for i,l in enumerate(p.read_text(encoding='utf-8').splitlines()) if re.search(r'read_csv|read_parquet|json\.load\(',l)];print(bad);assert not bad"
 
 # M1-6 Gate
-& $py tools/verify_reports.py --analysis-dir "outputs/$evNew/analysis" --baseline $base --report "$env:TEMP\verify_report_M1.json"
+& $py tools/verify_reports.py --milestone M1 --analysis-dir "outputs/$evNew/analysis" --baseline $base --report "$env:TEMP\verify_report_M1.json"
 # 期望 exit 0，items == 6
 ```
 
@@ -331,7 +331,7 @@ Copy-Item "outputs/$evNew/analysis/experiment_summary_for_leadership.html" "$env
 # 期望六节齐全
 
 # M2-4 Gate
-& $py tools/verify_reports.py --analysis-dir "outputs/$evNew/analysis" --baseline $base --report "$env:TEMP\verify_report_M2.json"
+& $py tools/verify_reports.py --milestone M2 --analysis-dir "outputs/$evNew/analysis" --baseline $base --report "$env:TEMP\verify_report_M2.json"
 # 期望 exit 0，items == 8
 ```
 
@@ -382,7 +382,7 @@ Copy-Item "outputs/$evNew/analysis/experiment_summary_for_leadership.html" "$env
 & $py -c "import pathlib;t=pathlib.Path('outputs/$evNew/analysis/reports/engineering.md').read_text(encoding='utf-8');print('sections:',[s for s in ['## E0','## E1','## E2','## E3','## E4','## E6','## E7','## E8','## E9','## E10','## E11'] if s in t]);print('has PR-001:', 'PR-001' in t);print('nan_filled:', '4,940,897' in t);print('funnel absent:', 'zero_variance_dropped' not in t)"
 # 期望 11 节齐全；has PR-001: True；nan_filled: True；funnel absent: True
 
-& $py tools/verify_reports.py --analysis-dir "outputs/$evNew/analysis" --baseline $base --report "$env:TEMP\verify_report_M3.json"
+& $py tools/verify_reports.py --milestone M3 --analysis-dir "outputs/$evNew/analysis" --baseline $base --report "$env:TEMP\verify_report_M3.json"
 # 期望 exit 0，items == 14
 ```
 
@@ -450,7 +450,7 @@ Copy-Item "outputs/$evNew/analysis/experiment_summary_for_leadership.html" "$env
 & $py -c "import pathlib;o=pathlib.Path('outputs/$evOld/analysis/reports/experiment.md').read_text(encoding='utf-8');n=pathlib.Path('outputs/$evNew/analysis/reports/experiment.md').read_text(encoding='utf-8');import re;ko=re.search(r'### X1\.1.*?\n\n(.+?)\n',o,re.S).group(1)[:40];kn=re.search(r'### X1\.1.*?\n\n(.+?)\n',n,re.S).group(1)[:40];print('old:',ko);print('new:',kn);print('different:', ko!=kn)"
 # 期望 different: True
 
-& $py tools/verify_reports.py --analysis-dir "outputs/$evNew/analysis" --baseline $base --report "$env:TEMP\verify_report_M4.json"
+& $py tools/verify_reports.py --milestone M4 --analysis-dir "outputs/$evNew/analysis" --baseline $base --report "$env:TEMP\verify_report_M4.json"
 # 期望 exit 0，items == 16
 ```
 
@@ -493,8 +493,8 @@ Copy-Item "outputs/$evNew/analysis/experiment_summary_for_leadership.html" "$env
 | :--- | :---: | :--- | :--- |
 | `report/spec.py` | 新增 | `load_spec()`、`resolve_placeholders()`、`DERIVED` 注册表、`SpecError` | §4.3.2 |
 | `report/executive.py` | 新增 | `render_executive(summary, spec) -> str`；自包含 HTML（图片 base64） | §4.3.1 |
-| `configs/report/executive_default.yaml` | 修改 | 落最终默认规格（K1 四 KPI locked、K3 五图顺序、K4 三表） | §4.3.2 |
-| `report/build.py` | 修改 | `write_manifest()`；alias 生成；`--layout v2` 目录布局 | §2.4、§5.2 |
+| `configs/report/executive_default.yaml` | 校验 | 不改内容；仅断言 4 个 `locked` KPI 与 5 图顺序存在 | 附录 A |
+| `report/build.py` | 修改 | `write_manifest()`；alias 生成；`layout` 开关（语义见 design §2.2.1） | §2.4、§5.2 |
 | `pipeline/ensemble/bagging.py` | 修改 | 新增 `_pick_report()`；替换 1290/1292/2689/2699/2888/2889 六处 | §5.3 |
 | `tools/build_reports.py` | 修改 | `--layout`、`--spec` 参数 | §2.2 |
 
@@ -523,7 +523,7 @@ Rename-Item "outputs/$evNew/analysis/reports/manifest.json" "manifest.json.bak"
 & $py -c "import sys;sys.path.insert(0,'.');from pipeline.ensemble.bagging import _pick_report;p=_pick_report('outputs/$evNew/analysis','experiment','md');print(p);assert p.endswith('experiment_analysis_report.md')"
 Rename-Item "outputs/$evNew/analysis/reports/manifest.json.bak" "manifest.json"
 
-& $py tools/verify_reports.py --analysis-dir "outputs/$evNew/analysis" --baseline $base --report "$env:TEMP\verify_report_M5.json"
+& $py tools/verify_reports.py --milestone M5 --analysis-dir "outputs/$evNew/analysis" --baseline $base --report "$env:TEMP\verify_report_M5.json"
 # 期望 exit 0，items == 18
 ```
 
@@ -578,7 +578,7 @@ Rename-Item "outputs/$evNew/analysis/reports/manifest.json.bak" "manifest.json"
 # 双路径完整产物
 foreach ($ev in @($evOld, $evNew)) {
   & $py tools/build_reports.py --manifest "outputs/$ev/metadata/experiment_manifest.json" --types engineering,experiment,executive,datacard,reference --layout v2
-  & $py tools/verify_reports.py --analysis-dir "outputs/$ev/analysis" --baseline $base --report "$env:TEMP\verify_$($ev.Split('/')[-1]).json"
+  & $py tools/verify_reports.py --milestone M6 --analysis-dir "outputs/$ev/analysis" --baseline $base --report "$env:TEMP\verify_$($ev.Split('/')[-1]).json"
   if ($LASTEXITCODE -ne 0) { throw "verify failed: $ev" }
 }
 
@@ -659,6 +659,7 @@ CHECKS = {
 | M6 | 全部 28 条断言 + 自定义 9 项 | 37 |
 
 > `expected_item_counts` 已写入 baseline JSON；Gate 会校验 `len(items)` 是否匹配，防"漏跑断言"。
+> `--milestone` 同时决定**启用哪些断言**与**期望 items 数**；未传 `--milestone` → exit 2。里程碑自定义项（`M0-1`…`M6-9`）写在 `verify_reports.py` 内，编号前缀固定 `M<k>-`。
 
 ---
 
