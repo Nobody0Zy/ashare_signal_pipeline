@@ -250,8 +250,7 @@
       "length_hint_experiment": 700,
       "max_simple_hints_per_report": 5,
       "winsor_tolerance": 1e-12,
-      "label_span_warn_days": 60,
-      "extreme_ratio_vs_p99": 3.0
+      "label_span_warn_days": 60
     },
     "required_summary_keys": [
       "schema_version",
