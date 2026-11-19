@@ -1,0 +1,137 @@
+{
+  "schema": "report-refactor-baseline/1",
+  "target_tag": "v1.1.1",
+  "source_tag": "v1.1.0",
+  "source_commit": "fe9a3d6",
+  "captured_at": "2026-11-19",
+  "note": "本文件是 v1.1.1 报告层重构的回归锚点。以下数值在重构后必须逐值不变；任何不相等都视为重构引入了计算副作用，立即停止。",
+
+  "experiments": {
+    "demo_old": {
+      "experiment_version": "kernel_v11/check/kernel_v11_20261102_demo_old_75443d88",
+      "input_mode": "holding_file",
+      "coupling_mode": "path_dependent",
+      "run_mode": "full",
+      "step1": {
+        "samples_rows": 240257,
+        "sample_count": 240257,
+        "dropped_no_target": 0,
+        "target_coverage": 1.0,
+        "target_stats": {
+          "mean": 0.007655736769942917,
+          "std": 0.17210384495173559,
+          "min": -0.5277657462313565,
+          "p25": -0.06489945753015258,
+          "p50": -0.03012998774218334,
+          "p75": 0.02729519874701869,
+          "max": 7.612734534006371
+        }
+      },
+      "step2": {"input_samples": 240257, "valid_samples": 235855, "dropped_samples": 4402, "slice_rows": 14151300},
+      "step3": {"rows": 14151300, "samples": 235855, "nan_filled": 3081538, "inf_replaced": 0},
+      "step4": {"samples": 235855, "columns": 53, "selected_features": 50, "raw_extracted_feature_columns": 324, "zero_variance_dropped": 20, "invalid_targets_dropped": 0},
+      "step5": {"train_rows": 150125, "val_rows": 37783, "test_rows": 36403, "buffer_train_val_days": 73, "buffer_val_test_days": 63, "buffer_trading_days_required": 60, "buffer_check_status": "enforced"},
+      "step6": {"best_iteration": 120, "mae": 0.07975812187165689, "spearman": 0.343649932454362, "pearson": 0.23118487376060604},
+      "total_seconds": 1566,
+      "wall_clock_minutes": 26.1
+    },
+
+    "demo_new": {
+      "experiment_version": "kernel_v11/check/kernel_v11_20261102_demo_new_6e499192",
+      "input_mode": "samples",
+      "coupling_mode": "decoupled",
+      "run_mode": "full",
+      "samples_id": "bollinger_breakout_080c9262_294b0504",
+      "label_name": "target_future_20d",
+      "step1": {
+        "samples_rows": 393881,
+        "sample_count": 385252,
+        "dropped_no_target": 8629,
+        "target_coverage": 0.978092367999472,
+        "target_stats": {
+          "mean": 0.008800658356901452,
+          "std": 0.17469126415855107,
+          "min": -0.9082568870885627,
+          "p25": -0.08718589991291442,
+          "p50": -0.009296419194446681,
+          "p75": 0.07843137930322391,
+          "max": 18.076334752966133
+        }
+      },
+      "step2": {"input_samples": 385252, "valid_samples": 378088, "dropped_samples": 7164, "slice_rows": 22685280},
+      "step3": {"rows": 22685280, "samples": 378088, "nan_filled": 4940897, "inf_replaced": 0},
+      "step4": {"samples": 378088, "columns": 53, "selected_features": 50, "raw_extracted_feature_columns": 324, "zero_variance_dropped": 20, "invalid_targets_dropped": 0},
+      "step5": {"train_rows": 250459, "val_rows": 59700, "test_rows": 50225, "buffer_train_val_days": 73, "buffer_val_test_days": 63, "buffer_trading_days_required": 60, "buffer_check_status": "enforced"},
+      "step6": {"best_iteration": 34, "mae": 0.1122387160429045, "spearman": 0.14636648633621954, "pearson": 0.09601927392784404},
+      "total_seconds": 2724,
+      "wall_clock_minutes": 45.4
+    }
+  },
+
+  "report_anchors": {
+    "demo_new": {
+      "test_quintile_target_raw_mean": [-0.030973, -0.015951, -0.003065, 0.004914, 0.012529],
+      "test_quintile_win_rate": [0.317870, 0.369438, 0.412943, 0.439223, 0.467894],
+      "median_split": {"low_raw_mean": -0.019790, "high_raw_mean": 0.006772, "uplift_pp": 2.6563, "low_win_rate": 0.355354, "high_win_rate": 0.447595},
+      "threshold_filters": [
+        {"quantile": 0.5, "kept_ratio": 0.50001, "target_raw_mean": 0.006773, "vs_all_pp": 1.3282},
+        {"quantile": 0.6, "kept_ratio": 0.40000, "target_raw_mean": 0.008722, "vs_all_pp": 1.5231},
+        {"quantile": 0.7, "kept_ratio": 0.30001, "target_raw_mean": 0.011507, "vs_all_pp": 1.8017},
+        {"quantile": 0.8, "kept_ratio": 0.20000, "target_raw_mean": 0.012529, "vs_all_pp": 1.9039},
+        {"quantile": 0.9, "kept_ratio": 0.10001, "target_raw_mean": 0.001231, "vs_all_pp": 0.7740}
+      ],
+      "monotonic_100": {
+        "train": {"rank_corr": 0.9937, "first10_mean": -0.0758, "last10_mean": 0.0932},
+        "val": {"rank_corr": 0.8804, "first10_mean": -0.0288, "last10_mean": 0.0241},
+        "test": {"rank_corr": 0.7394, "first10_mean": -0.0380, "last10_mean": 0.0012}
+      },
+      "feature_importance_top1": {"feature": "non_trading_ratio", "gain_share": 0.218678},
+      "robustness": {
+        "feature_drift_ks": {"count_over_0_1": 15, "median_ks": 0.0719, "max_ks": 0.2403, "max_feature": "momentum_5__kurtosis"},
+        "label_overlap_share_le_horizon": 0.4325,
+        "group_time_concentration_max": 0.745,
+        "monthly": {"months": 21, "positive_share": 0.3333, "best": {"ym": 202409, "mean": 0.1837}, "worst": {"ym": 202401, "mean": -0.1448}, "std": 0.0707}
+      },
+      "artifact_count": 52,
+      "artifact_bytes": 2815488000
+    }
+  },
+
+  "report_contracts": {
+    "summary_schema_version": "report-summary/1",
+    "executive_schema_version": "executive-report/1",
+    "required_summary_keys": [
+      "schema_version", "experiment_version", "run_modes", "generated_at",
+      "input_artifacts", "analysis_scope", "pipeline_steps", "resolved_params",
+      "model_feature_schema", "cleaning", "split_overview", "overall_test",
+      "test_quintile", "test_median_split", "test_threshold_filters", "monotonic",
+      "feature_importance_top20", "feature_alignment", "artifacts_generated",
+      "input_identity", "fingerprints", "buffer", "feature_funnel", "clip_percentiles",
+      "target_stats_by_split", "drift_hint", "artifact_sizes", "smoke_vs_full",
+      "datacard_path", "reference_path", "workload", "param_effective", "determinism",
+      "feature_drift", "label_overlap", "group_time_concentration", "monthly_returns"
+    ],
+    "report_paths": {
+      "engineering": "reports/engineering.md",
+      "experiment": "reports/experiment.md",
+      "executive": "reports/executive.html",
+      "manifest": "reports/manifest.json"
+    },
+    "asset_dir": "assets",
+    "table_dir": "tables",
+    "deprecated_aliases": [
+      {"path": "experiment_analysis_report.md", "alias_of": "reports/experiment.md", "removal_version": "v1.2"},
+      {"path": "experiment_summary_for_leadership.html", "alias_of": "reports/executive.html", "removal_version": "v1.2"}
+    ]
+  },
+
+  "expected_item_counts": {
+    "M0": 12,
+    "M1": 6,
+    "M2": 8,
+    "M3": 14,
+    "M4": 16,
+    "M5": 18,
+    "M6": 37
+  }
+}

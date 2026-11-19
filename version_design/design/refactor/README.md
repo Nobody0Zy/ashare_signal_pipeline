@@ -63,10 +63,17 @@
 
 ---
 
-## v1.1.1（报告重构）
+## v1.1.1（报告层重构）
+
+> 在 `v1.1.0` 发布后开分支 `refactor/v1.1.1`，**不修改 step1–step6 任何行为**，只重构报告层。
 
 | 文件 | 内容 | 状态 |
 | :--- | :--- | :--- |
-| [v1.1.1_report/design.md](./v1.1.1_report/design.md) | 报告层重构规范：三份报告（engineering / experiment / executive）、事实表契约、产物清单、可读性规范、里程碑与验收 | 设计稿，待评审 |
+| [v1.1.1_report/README.md](./v1.1.1_report/README.md) | 导航：按角色/里程碑给出阅读范围 | 定稿 |
+| [v1.1.1_report/experiment_design.md](./v1.1.1_report/experiment_design.md) | **规格正文（唯一内容权威）**：三份报告规范、事实表契约、可读性规范、里程碑、验收 | 定稿 |
+| [v1.1.1_report/implementation_plan.md](./v1.1.1_report/implementation_plan.md) | **施工顺序**：每里程碑文件白名单、逐文件改动、验收命令、回滚点；§0.4 独立实现可行性检查 | 定稿 |
+| [v1.1.1_report/code_agent_prompt.md](./v1.1.1_report/code_agent_prompt.md) | **执行边界**：阻塞条件、止损规则、禁止发明清单、结项报告格式 | 定稿 |
+| [v1.1.1_report/design_memory.md](./v1.1.1_report/design_memory.md) | 设计依据、决策 Q1–Q12、被否决方案、文档演进（**实施时不需要读**） | 归档 |
+| [v1.1.1_report/baseline_v1.1.0.json](./v1.1.1_report/baseline_v1.1.0.json) | 回归锚点：v1.1.0 demo 实测值 + 契约常量 + 断言条数 | 定稿 |
 
-> 该迭代在 `v1.1.0` 发布后开分支 `refactor/v1.1.1`，不修改 step1–step6 任何行为。
+> 该版本的报告层重构只做表现层与产物契约，**不含** `holding_clean` 覆盖问题的语义修复（见 `docs/16_potential_risks.md` PR-001，v1.2）。
