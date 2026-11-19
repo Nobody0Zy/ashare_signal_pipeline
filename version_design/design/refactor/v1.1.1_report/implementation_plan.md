@@ -158,7 +158,7 @@ $evNew = "kernel_v11/check/kernel_v11_20261102_demo_new_6e499192"
 
 | 文件路径 | 动作 | 改什么（函数/键） | 设计依据 |
 | :--- | :---: | :--- | :--- |
-| `analyze_experiment_results.py` | 修改 | 新增 `_collect_input_identity()`、`_collect_fingerprints()`、`_collect_buffer()`、`_collect_feature_funnel()`、`_collect_clip_and_target_stats()`、`_collect_artifact_sizes()`、`_collect_runs()`、`_collect_smoke_vs_full()`、`_collect_workload()`、`_collect_param_effective()`、`_collect_determinism()`、`_collect_robustness()`；`render_summary_json()` 输出上述键；新增 CLI `--emit-summary-only` | §3.2 |
+| `analyze_experiment_results.py` | 修改 | 新增 `_collect_label_span_stats()`（可选键 `label_span_stats`，见 design §3.2.1）；新增 `_collect_input_identity()`、`_collect_fingerprints()`、`_collect_buffer()`、`_collect_feature_funnel()`、`_collect_clip_and_target_stats()`、`_collect_artifact_sizes()`、`_collect_runs()`、`_collect_smoke_vs_full()`、`_collect_workload()`、`_collect_param_effective()`、`_collect_determinism()`、`_collect_robustness()`；`render_summary_json()` 输出上述键；新增 CLI `--emit-summary-only` | §3.2 |
 | `analyze_experiment_results.py` | 修改 | `SCHEMA_VERSION = "report-summary/1"` 常量 + 写入 `schema_version` | §3.1 |
 | `tools/verify_reports.py` | 新增 | `main()` / `run_checks(analysis_dir, baseline, milestone, only)` / `add_item(id, name, expected, actual, passed, detail)` / `write_report()`；实现 A-1..A-4 | §8.1–§8.3 |
 | `configs/report/executive_default.yaml` | 新增 | **按 design 附录 A 全文入库**（M5 直接消费，不再改动） | 附录 A |
@@ -215,7 +215,8 @@ Copy-Item "outputs/$evNew/analysis/experiment_analysis_report.md" "$env:TEMP\pre
 | M0-9 | `feature_drift.count_over_0_1` == 15（demo_new） |
 | M0-10 | 渲染输出与 M0 前逐字节相同（除"生成时间"行） |
 | M0-11 | 参数错误 exit 2 |
-| M0-12 | `verify_report_M0.json` 的 `items` 长度 == 12 |
+| M0-12 | `label_span_stats` 存在，`n_gt_60d == 3634`、`max_days == 2478`、`policy == "uncapped"`（demo_new） |
+| M0-13 | `verify_report_M0.json` 的 `items` 长度 == 13 |
 
 ### 2.5 回滚点
 
@@ -435,6 +436,7 @@ Copy-Item "outputs/$evNew/analysis/experiment_summary_for_leadership.html" "$env
 3. X2 五数表用 `target_stats_by_split`；漂移提示用 `drift_hint`；两者都不得现算。
 4. X9 四项用事实表字段；缺字段走降级矩阵，不现算。
 5. `> 简单说：` 每个报告最多 5 处，且只在章节末尾。
+6. `label_span_stats` 缺失时按 design §3.5 降级（不显示有效持有期行并标 `[WARN]`），**不得**在渲染器内现算跨度（违反不变量 2）。
 
 ### 6.3 验收命令
 
@@ -473,7 +475,8 @@ Copy-Item "outputs/$evNew/analysis/experiment_summary_for_leadership.html" "$env
 | M4-13 | X10 四小节齐全，X10.2 ≥8 行，X10.3 ≥3 行 |
 | M4-14 | A-19 不含 `nan_filled` / `inf_replaced` |
 | M4-15 | A-21 `> 简单说：` ≤5 且无新数字 |
-| M4-16 | Gate items == 16 |
+| M4-16 | A-29 有效持有期行 + 成因警告块（含 PR-007） |
+| M4-17 | Gate items == 17 |
 
 ### 6.5 回滚点
 
@@ -645,18 +648,19 @@ CHECKS = {
     "A-26": _a26_experiment_superset,
     "A-27": _a27_robustness,
     "A-28": _a28_param_effective,
+    "A-29": _a29_label_span,
 }
 ```
 
 | 里程碑 | 启用的断言 | 期望 items |
 | :---: | :--- | ---: |
-| M0 | A-1 + M0 自定义 11 项（见 §2.4） | 12 |
+| M0 | A-1 + M0 自定义 12 项（见 §2.4） | 13 |
 | M1 | A-6, A-7, A-9 + 自定义 3 项 | 6 |
 | M2 | A-13 + 自定义 7 项 | 8 |
 | M3 | A-6, A-9, A-10, A-19, A-22, A-28 + 自定义 8 项 | 14 |
-| M4 | A-4, A-11, A-12, A-14, A-15, A-17, A-19, A-21, A-23, A-25, A-27 + 自定义 5 项 | 16 |
+| M4 | A-4, A-11, A-12, A-14, A-15, A-17, A-19, A-21, A-23, A-25, A-27, A-29 + 自定义 5 项 | 17 |
 | M5 | A-2, A-3, A-5, A-8, A-18, A-20, A-22, A-24, A-26 + 自定义 9 项 | 18 |
-| M6 | 全部 28 条断言 + 自定义 9 项 | 37 |
+| M6 | 全部 29 条断言 + 自定义 10 项 | 39 |
 
 > `expected_item_counts` 已写入 baseline JSON；Gate 会校验 `len(items)` 是否匹配，防"漏跑断言"。
 > `--milestone` 同时决定**启用哪些断言**与**期望 items 数**；未传 `--milestone` → exit 2。里程碑自定义项（`M0-1`…`M6-9`）写在 `verify_reports.py` 内，编号前缀固定 `M<k>-`。

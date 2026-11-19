@@ -225,7 +225,17 @@
         }
       },
       "artifact_count": 52,
-      "artifact_bytes": 2815488000
+      "artifact_bytes": 2815488000,
+      "label_span_stats": {
+        "n_valid": 392369,
+        "median_days": 29,
+        "p99_days": 60,
+        "max_days": 2478,
+        "share_gt_60d": 0.009262,
+        "n_gt_60d": 3634,
+        "longest_pause_rows": 1628,
+        "policy": "uncapped"
+      }
     }
   },
   "report_contracts": {
@@ -239,7 +249,9 @@
       "length_hint_engineering": 400,
       "length_hint_experiment": 700,
       "max_simple_hints_per_report": 5,
-      "winsor_tolerance": 1e-12
+      "winsor_tolerance": 1e-12,
+      "label_span_warn_days": 60,
+      "extreme_ratio_vs_p99": 3.0
     },
     "required_summary_keys": [
       "schema_version",
@@ -303,12 +315,12 @@
     ]
   },
   "expected_item_counts": {
-    "M0": 12,
+    "M0": 13,
     "M1": 6,
     "M2": 8,
     "M3": 14,
-    "M4": 16,
+    "M4": 17,
     "M5": 18,
-    "M6": 37
+    "M6": 39
   }
 }
