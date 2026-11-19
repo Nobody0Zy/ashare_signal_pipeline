@@ -393,7 +393,7 @@ flowchart TD
 | `n_gt_60d` | 跨度 > 60 天的条数 |
 | `by_split.{split}.n_gt_60d` | 各 split 的条数（可选子键） |
 | `longest_pause_rows` | 样本窗口内最长连续 `paused=1` 行数（可选子键） |
-| `policy` | `"uncapped"`（当前） / `"capped:<days>"`（PR-007 修复后） |
+| `policy` | `"uncapped"`（当前） / `"capped:<days>"`（PR-009 修复后） |
 
 > 为何是可选键、修复后是否仍保留：见 `design_memory.md` §4.9。
 
@@ -638,7 +638,7 @@ outputs/<ev>
 ```markdown
 > ⚠️ **标签名义为「<horizon_days> 个交易日」，实为「<horizon_days> 个非停牌交易日」**：停牌会把实际跨度拉长至数十天到数年。
 > 跨停牌的复牌首日通常无涨跌幅限制，价格前后不可比；这些样本的极值不代表可预测收益。
-> 详见 `docs/16_potential_risks.md` PR-007 / PR-008。
+> 详见 `docs/16_potential_risks.md` PR-009 / PR-010。
 ```
 
 `share_gt_60d == 0` 时，仍保留「有效持有期」行，但不输出警告块。
@@ -1089,7 +1089,7 @@ data/reference/_kernel/<kernel_version>/reference.md
 | A-26 | 实验版不少于领导版：experiment 的单调性图集合 ⊇ 领导版 5 图 | M5 |
 | A-27 | 稳健性必现：X9 四个子项各有数字或"未计算 + 原因" | M4 |
 | A-28 | 参数生效可查：`engineering.md` 含 E10，≥8 个配置项及生效状态；标 ✘ 的给原因 | M3 |
-| A-29 | 有效持有期必现：`label_span_stats` 存在时，X1.3 必须含「有效持有期」行（中位/P99/最大/占比）；`share_gt_60d > 0` 时必须含成因警告块与 `PR-007` 字样 | M4 |
+| A-29 | 有效持有期必现：`input_mode == "samples"` 时 `label_span_stats` **必须存在**（缺失即 fail）；存在时 X1.3 必须含「有效持有期」行（中位/P99/最大/占比）；`share_gt_60d > 0` 时必须含成因警告块与 `PR-009` 字样。`holding_file` 模式下该键可缺失 | M4 |
 
 ### 8.3 exit code
 

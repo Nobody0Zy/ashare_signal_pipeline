@@ -475,7 +475,7 @@ Copy-Item "outputs/$evNew/analysis/experiment_summary_for_leadership.html" "$env
 | M4-13 | X10 四小节齐全，X10.2 ≥8 行，X10.3 ≥3 行 |
 | M4-14 | A-19 不含 `nan_filled` / `inf_replaced` |
 | M4-15 | A-21 `> 简单说：` ≤5 且无新数字 |
-| M4-16 | A-29 有效持有期行 + 成因警告块（含 PR-007） |
+| M4-16 | A-29 有效持有期行 + 成因警告块（含 PR-009） |
 | M4-17 | Gate items == 17 |
 
 ### 6.5 回滚点
