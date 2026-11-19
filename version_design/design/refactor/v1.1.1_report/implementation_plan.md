@@ -79,7 +79,7 @@ M6  文档与 demo 收尾                        文档 + 双路径 demo + compa
 | G7 | 无降级矩阵 | 缺字段时 agent 自行发明占位值或直接崩 |
 | G8 | 无 golden 比对方法（M1） | "逐字节一致"无法判定 |
 | G9 | 无数值锚点文件 | "数值不变"只能靠人眼 |
-| G10 | 无断言 → 代码位置映射 | A-1..A-28 写了但不知在哪实现 |
+| G10 | 无断言 → 代码位置映射 | A-1..A-29 写了但不知在哪实现 |
 | G11 | 无回滚点与 tag 命名 | 失败后无法回到已知良好状态 |
 | G12 | 无"禁止发明"清单 | agent 会自行补充未定义的字段/图表/结论 |
 
@@ -98,7 +98,7 @@ M6  文档与 demo 收尾                        文档 + 双路径 demo + compa
 | G9 | `baseline_v1.1.0.json`（含 `report_anchors`） | 同目录 | A-4 逐值比对 |
 | G10 | 断言 → 实现位置映射表 | 本文件 §9 | A-9 自身可被 `verify_reports --only A-9` 验证 |
 | G11 | 每里程碑回滚点 + tag `m<k>-ok` | 本文件各节「回滚点」 | 打 tag 后 `git checkout m<k>-ok` 可回到该状态 |
-| G12 | 「禁止发明」清单（12 条） | code_agent_prompt §7 | 结项报告逐条声明 |
+| G12 | 「禁止发明」清单（13 条） | code_agent_prompt §7 | 结项报告逐条声明 |
 
 #### 0.4.3 仍需人工确认的 3 项
 
@@ -158,7 +158,7 @@ $evNew = "kernel_v11/check/kernel_v11_20261102_demo_new_6e499192"
 
 | 文件路径 | 动作 | 改什么（函数/键） | 设计依据 |
 | :--- | :---: | :--- | :--- |
-| `analyze_experiment_results.py` | 修改 | 新增 `_collect_label_span_stats()`（可选键 `label_span_stats`，见 design §3.2.1）；新增 `_collect_input_identity()`、`_collect_fingerprints()`、`_collect_buffer()`、`_collect_feature_funnel()`、`_collect_clip_and_target_stats()`、`_collect_artifact_sizes()`、`_collect_runs()`、`_collect_smoke_vs_full()`、`_collect_workload()`、`_collect_param_effective()`、`_collect_determinism()`、`_collect_robustness()`；`render_summary_json()` 输出上述键；新增 CLI `--emit-summary-only` | §3.2 |
+| `analyze_experiment_results.py` | 修改 | 新增 `_collect_label_span_stats()`（条件必填键 `label_span_stats`，见 design §3.2.1）；新增 `_collect_input_identity()`、`_collect_fingerprints()`、`_collect_buffer()`、`_collect_feature_funnel()`、`_collect_clip_and_target_stats()`、`_collect_artifact_sizes()`、`_collect_runs()`、`_collect_smoke_vs_full()`、`_collect_workload()`、`_collect_param_effective()`、`_collect_determinism()`、`_collect_robustness()`；`render_summary_json()` 输出上述键；新增 CLI `--emit-summary-only` | §3.2 |
 | `analyze_experiment_results.py` | 修改 | `SCHEMA_VERSION = "report-summary/1"` 常量 + 写入 `schema_version` | §3.1 |
 | `tools/verify_reports.py` | 新增 | `main()` / `run_checks(analysis_dir, baseline, milestone, only)` / `add_item(id, name, expected, actual, passed, detail)` / `write_report()`；实现 A-1..A-4 | §8.1–§8.3 |
 | `configs/report/executive_default.yaml` | 新增 | **按 design 附录 A 全文入库**（M5 直接消费，不再改动） | 附录 A |
@@ -197,7 +197,7 @@ Copy-Item "outputs/$evNew/analysis/experiment_analysis_report.md" "$env:TEMP\pre
 
 # M0-5 里程碑 Gate
 & $py tools/verify_reports.py --milestone M0 --analysis-dir "outputs/$evNew/analysis" --baseline $base --report "$env:TEMP\verify_report_M0.json"
-# 期望 exit 0，items == 12
+# 期望 exit 0，items == 13
 ```
 
 ### 2.4 验收断言
@@ -216,7 +216,8 @@ Copy-Item "outputs/$evNew/analysis/experiment_analysis_report.md" "$env:TEMP\pre
 | M0-10 | 渲染输出与 M0 前逐字节相同（除"生成时间"行） |
 | M0-11 | 参数错误 exit 2 |
 | M0-12 | `label_span_stats` 存在，`n_gt_60d == 3634`、`max_days == 2478`、`policy == "uncapped"`（demo_new） |
-| M0-13 | `verify_report_M0.json` 的 `items` 长度 == 13 |
+| M0-13 | `run_env` 六字段齐全（`git_commit` 非空、五个依赖版本非 null） |
+| M0-14 | `verify_report_M0.json` 的 `items` 长度 == 13（本行不计入 items） |
 
 ### 2.5 回滚点
 
@@ -453,7 +454,7 @@ Copy-Item "outputs/$evNew/analysis/experiment_summary_for_leadership.html" "$env
 # 期望 different: True
 
 & $py tools/verify_reports.py --milestone M4 --analysis-dir "outputs/$evNew/analysis" --baseline $base --report "$env:TEMP\verify_report_M4.json"
-# 期望 exit 0，items == 16
+# 期望 exit 0，items == 17
 ```
 
 ### 6.4 验收断言
@@ -476,7 +477,8 @@ Copy-Item "outputs/$evNew/analysis/experiment_summary_for_leadership.html" "$env
 | M4-14 | A-19 不含 `nan_filled` / `inf_replaced` |
 | M4-15 | A-21 `> 简单说：` ≤5 且无新数字 |
 | M4-16 | A-29 有效持有期行 + 成因警告块（含 PR-009） |
-| M4-17 | Gate items == 17 |
+| M4-17 | A-4 九类数值锚点与 `baseline.report_anchors` 逐值一致 |
+| M4-18 | Gate items == 17（本行不计入 items） |
 
 ### 6.5 回滚点
 
@@ -607,6 +609,7 @@ foreach ($ev in @($evOld, $evNew)) {
 | M6-7 | `docs/16_potential_risks.md` PR-002 已标记闭环 |
 | M6-8 | `git status --porcelain` 为空 |
 | M6-9 | 打 tag `v1.1.1` 后 `git describe --tags` 返回 `v1.1.1` |
+| M6-10 | 双路径 A-29 行为正确：demo_new（samples）有「有效持有期」行且含 PR-009；demo_old（holding_file）无该行且 Gate 仍 exit 0 |
 
 ### 8.5 回滚点
 
@@ -654,16 +657,17 @@ CHECKS = {
 
 | 里程碑 | 启用的断言 | 期望 items |
 | :---: | :--- | ---: |
-| M0 | A-1 + M0 自定义 12 项（见 §2.4） | 13 |
+| M0 | 见 §2.4 枚举行（13 项） | 13 |
 | M1 | A-6, A-7, A-9 + 自定义 3 项 | 6 |
 | M2 | A-13 + 自定义 7 项 | 8 |
 | M3 | A-6, A-9, A-10, A-19, A-22, A-28 + 自定义 8 项 | 14 |
 | M4 | A-4, A-11, A-12, A-14, A-15, A-17, A-19, A-21, A-23, A-25, A-27, A-29 + 自定义 5 项 | 17 |
 | M5 | A-2, A-3, A-5, A-8, A-18, A-20, A-22, A-24, A-26 + 自定义 9 项 | 18 |
-| M6 | 全部 29 条断言 + 自定义 10 项 | 39 |
+| M6 | 29 条断言（A-1..A-29）+ §8.4 自定义 10 项 | 39 |
 
 > `expected_item_counts` 已写入 baseline JSON；Gate 会校验 `len(items)` 是否匹配，防"漏跑断言"。
-> `--milestone` 同时决定**启用哪些断言**与**期望 items 数**；未传 `--milestone` → exit 2。里程碑自定义项（`M0-1`…`M6-9`）写在 `verify_reports.py` 内，编号前缀固定 `M<k>-`。
+> `--milestone` 同时决定**启用哪些断言**与**期望 items 数**；未传 `--milestone` → exit 2。
+> **计数规则**：各里程碑「验收断言」表里列为 `M<k>-*` 的行是**必须存在的断言**；`Gate items == N` 行是计数校验，**不计入 items**。若枚举行数超过 N，则把 N 上调并在该里程碑提交说明；M6 的 N 恒等于「29 条断言 + §8.4 枚举行数」。里程碑自定义项（`M0-1`…`M6-9`）写在 `verify_reports.py` 内，编号前缀固定 `M<k>-`。
 
 ---
 

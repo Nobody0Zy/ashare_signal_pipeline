@@ -223,7 +223,7 @@ git tag --list "v1.1.0"
 
 1. **不得发明新的 `report_summary.json` 顶层键**（只允许 design §3.1/§3.2 列出的）。
 2. **不得发明新的报告章节**（E/X/K 编号只在 design §4 内）。
-3. **不得发明新的断言编号**（A-1..A-28；里程碑自定义项写在 `verify_reports.py` 内并标 `M<k>-*`）。
+3. **不得发明新的断言编号**（A-1..A-29；里程碑自定义项写在 `verify_reports.py` 内并标 `M<k>-*`）。
 4. **不得在代码里写死实验数字**（`324`、`8629`、`73` 等必须来自事实表或 baseline JSON）。
 5. **不得在代码里写死标签名 / 样本集名**（必须从 `resolved_params` / `input_identity` 读取）。
 6. **不得发明标签定义文案**（一句话映射只在 `report/datacard.py::LABEL_ONE_LINERS`；缺失输出「（未登记定义）」）。

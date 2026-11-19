@@ -23,7 +23,7 @@
 | M1 | §2.2 · §2.3 · §4.2 · §8.1 · §8.2 | ~170 |
 | M2 | §2.4 · §3.2 · §4.5 · §4.6 · §4.7 | ~160 |
 | M3 | §4.1 · §6（§6.1–6.6） · §4.8 | ~150 |
-| M4 | §4.2 · §4.8 · §6（全部） | ~200 |
+| M4 | §3.2.1 · §4.2 · §4.8 · §6（全部） | ~215 |
 | M5 | §4.3 · §2.4 · §5（全部） | ~160 |
 | M6 | §7 M6 · §10 · §9 | ~60 |
 
@@ -310,7 +310,7 @@ flowchart TD
 见 [baseline_v1.1.0.json](./baseline_v1.1.0.json) 的 `report_contracts.required_summary_keys`（38 项）。
 
 - 缺任一 → `report/schema.py::validate` 抛 `SchemaError`，`analyze_experiment_results.py` exit 1；
-- 可选键缺失 → 按 §3.5 降级矩阵处理，并在报告末尾 `[WARN]` 声明。
+- 可选键缺失 → 按 §3.5 降级矩阵处理，并在报告末尾 `[WARN]` 声明；`label_span_stats` 属条件必填，见 §3.2.1。
 
 ### 3.2 新增字段（JSON 路径 + 口径）
 
@@ -355,7 +355,7 @@ flowchart TD
 | `drift_hint.{split}.median_delta_pp` | float | `(p50_split - p50_train) * 100` |
 | `drift_hint.{split}.win_rate_delta_pp` | float | `(win_rate_split - win_rate_train) * 100` |
 | `drift_hint.thresholds` | dict | `{"median_pp": 1.0, "win_rate_pp": 5.0}`（**常量，不随数据变**） |
-| `label_span_stats`（**可选键**） | dict | 标签「有效持有期」口径，见 §3.2.1 |
+| `label_span_stats`（**条件必填**） | dict \| null | 标签有效持有期口径：`samples` 模式必须产出（A-29），`holding_file` 模式写 `null`；字段与算法见 §3.2.1 |
 | `drift_hint.{split}.exceeded` | list[str] | 超阈的指标名，如 `["median","win_rate"]` |
 | `artifact_sizes[]` | list | `{path, bytes, mtime, group}`；`group ∈ {processed,slices,ts_features,features,splits,models,outputs}` |
 | `smoke_vs_full.{metric}` | dict | `{smoke, full, delta}`；metric 至少含 `valid_samples`、`selected_features`、`best_iteration`、`mae`、`spearman`、`total_seconds` |
@@ -378,9 +378,21 @@ flowchart TD
 4. 同 mode 多份 state → 取 `updated_at` 最新，另记 `rerun_count`，报告注明「重跑 N 次」。
 5. 若某 mode 缺失 → `runs` 不含该键，`smoke_vs_full` 只含单边值且 `delta: null`，报告写「未执行」。
 
-### 3.2.1 `label_span_stats`（可选键）
+### 3.2.1 `label_span_stats`（条件必填键）
 
-阈值 `span_warn_days` 取自 `baseline.report_contracts.constants.label_span_warn_days`（当前 60）；报告中出现的该数字必须由此常量替换，不得写死。
+**必填规则**：`input_mode == "samples"` → 必须产出（缺失即 A-29 fail）；`input_mode == "holding_file"` → 写 `null`（不参与 A-29）。
+`A-1` 只校验 §3.1 的 38 个必填键，**不**检查本键；本键的强制性由 A-29 负责。
+
+阈值 `span_warn_days` 取自 `baseline.report_contracts.constants.label_span_warn_days`（当前 60）；报告中出现的该数字必须由此常量替换，不得写死。字段名 `share_gt_60d` / `n_gt_60d` 为**固定名称**，数值口径随常量变化。
+
+**计算口径（固定）**
+
+1. 取 `data/labels/<samples_id>/<label_name>.parquet`，其中 `<label_name>` = `input_identity.label_name`。
+2. 筛 `entry_idxd > 0 且 exit_idxd > 0`；`idxd` 为 `YYYYMMDD` 整数。
+3. 跨度 = `date(exit_idxd) − date(entry_idxd)` 的**日历天数**（`datetime.strptime(str(v), "%Y%m%d").date()`，相减取 `.days`），**不是**交易日数。
+4. `n_valid` = 第 2 步的行数；`median_days` / `p99_days` / `max_days` 为该跨度列的 `median` / `quantile(0.99)` / `max`。
+5. `share_gt_60d` = `(跨度 > span_warn_days).mean()`；`n_gt_60d` = 同一条件的计数。
+6. `longest_pause_rows` = 在 `data/processed/<ev>/datebar.parquet` 上按 `idxs` 求连续 `paused=1` 的最长长度（全局，不是样本内）；取不到写 `null`。
 
 | 字段 | 口径 |
 | :--- | :--- |
@@ -395,7 +407,7 @@ flowchart TD
 | `longest_pause_rows` | 样本窗口内最长连续 `paused=1` 行数（可选子键） |
 | `policy` | `"uncapped"`（当前） / `"capped:<days>"`（PR-009 修复后） |
 
-> 为何是可选键、修复后是否仍保留：见 `design_memory.md` §4.9。
+> 为何是「条件必填」、修复后是否仍保留：见 `design_memory.md` §4.9。
 
 ### 3.4 稳健性四项的计算定义（X9）
 
@@ -422,7 +434,7 @@ flowchart TD
 
 任一文件缺失 → 对应字段写 `null` + `reason`，不抛异常（A-27 允许"未计算 + 原因"）。
 
-### 3.5 降级矩阵（可选键缺失时）
+### 3.5 降级矩阵（可选键 / 条件必填键缺失时）
 
 | 缺失项 | 报告行为 | 断言 |
 | :--- | :--- | :--- |
@@ -432,7 +444,7 @@ flowchart TD
 | `artifact_sizes` | E6 只给目录级汇总 | 不 fail |
 | `workload` | E8 退化为「耗时 + 规模」，不给归因列 | 不 fail |
 | `param_effective` | E10 整节省略并标 `[WARN]` | A-28 只在该键存在时检查 |
-| `label_span_stats` | X1.3 不显示「有效持有期」行，标 `[WARN]` | A-29 只在该键存在时检查 |
+| `label_span_stats` | 仅 `holding_file` 模式允许为 `null`：X1.3 不显示「有效持有期」行。`samples` 模式下缺失 → **A-29 fail**（不降级） | A-29 |
 
 ### 3.6 `workload` 的派生规则（E8 唯一来源）
 
@@ -621,11 +633,20 @@ outputs/<ev>
 
 | 段落 | 必列内容 |
 | :--- | :--- |
-| 逻辑 | 一句话定义（入场 = 次一非停牌日开盘；持有 h 个非停牌日；`close/open − 1`）+ 涨停是否剔除 |
+| 逻辑 | 一句话定义（入场 = 次一非停牌日开盘；出场 = 第 h 个非停牌日收盘；`close/open − 1`）+ 涨停是否剔除 |
 | 选择依据 | 一句话（与信号持有期匹配、避免与旧规则耦合） |
 | 本次统计 | 覆盖率、非空行数、中位 / IQR、缩尾 P1/P99 |
 | **有效持有期** | `entry→exit` 日历跨度：中位 / P99 / 最大；**跨度 > `<span_warn_days>` 天占比**（= 跨停牌样本比例） |
 | 引用 | `> 全部可选标签及覆盖率见「数据卡 <sid> §D4」` |
+
+**标签口径说明（固定输出，紧随 X1.3 表格）**
+
+```markdown
+> 口径说明：本标签入场取「次一非停牌日 open」、出场取「第 h 个非停牌日 close」，
+> 实际跨 **h+1 个交易时段**（h 个隔夜 + h+1 个日内），且两端价格类型不对称（集合竞价 vs 收盘）。
+> 该口径为当前实现，存在待议项（`docs/16_potential_risks.md` PR-011）；
+> 报告只陈述当前口径，**不得**据此宣称其为最优或标准做法。
+```
 
 **有效持有期行（`label_span_stats` 存在时必须输出，逐字使用）**
 
@@ -836,7 +857,7 @@ sections:
 | R2 指标定义 | 12 个基础技术指标公式与参数 | `pipeline/step3_indicators.py` 与 `resolved_params.indicators` |
 | R3 特征工程规则 | tsfresh profile、方差 0 剔除、相关性去重、`max_features` 截断顺序 | `pipeline/step4_features.py` 与 `resolved_params.feature_selection` |
 | R4 切分规则 | 全量/冒烟两种语义、buffer 定义与强制规则 | `pipeline/step5_split.py` 与 `resolved_params.time_split` |
-| R5 标签公式 | 各标签入场/出场/异常处理完整公式 | `data_prep/labels/*.py` 的模块 docstring |
+| R5 标签公式 | 各标签入场/出场/异常处理完整公式；必须注明端点价格口径与「h 个交易日 vs h+1 个时段」差异（PR-011） | `data_prep/labels/*.py` 的模块 docstring |
 | R6 术语表 | `target` / `target_raw` / 缩尾 / 五分位 / 单调性 / buffer / 覆盖率 / 特征漏斗 | design §6.9 + 术语各 2 行 |
 
 ### 4.7 引用关系
@@ -1125,6 +1146,7 @@ data/reference/_kernel/<kernel_version>/reference.md
 | R12 | 规格与内核版本脱节 | 新字段无法引用 | 规格带 `schema`；未知占位符报错并列出可用字段 |
 | R13 | `holding_clean` 原地覆盖（PR-001） | 口径混淆、无法回溯 | 本迭代只在 E6 标注；语义修复归 v1.2 |
 | R14 | X9 无图 | 漂移幅度不直观 | 表格已足够判定阈值；图列入 v1.2 |
+| R15 | 标签端点价格口径待议（PR-011） | 报告若把当前口径当定论，结论会被高估约 0.29pp | X1.3 固定输出「口径说明」；R5 注明差异；prompt 禁止宣称最优 |
 
 ---
 
@@ -1184,7 +1206,7 @@ data/reference/_kernel/<kernel_version>/reference.md
 | 每样本集产物 | `data/reference/<samples_id>/datacard.md` |
 | 每内核版本产物 | `data/reference/_kernel/<version>/reference.md` |
 | 文档 | 本套 5 份文档、`docs/10_architecture.md` 模块表、`README.md` 导航 |
-| 证据 | 双路径 demo 三份报告 + `verify_report_reports.json`（A-1..A-28）+ 各里程碑 Gate exit code |
+| 证据 | 双路径 demo 三份报告 + `verify_report_reports.json`（A-1..A-29）+ 各里程碑 Gate exit code |
 
 ---
 
