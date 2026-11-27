@@ -41,7 +41,7 @@
 `version_design/design/<lineage>/<version_subdir>/baseline_fixture.md`
 
 从 v1.1 开始，机器可读的基线 JSON（`baseline_v*.json`）同样落位于
-`version_design/design/<lineage>/` 目录，使用 `tools/verify_v11.py --baseline <路径>` 读取。
+`version_design/design/<lineage>/` 目录，使用 `tools/verify_reports.py --baseline <路径>` 读取（v1.1 专用的 verify_v11.py 已归档，不随仓库分发）。
 
 如果某个版本迭代需要额外说明对拍背景，可以在对应的 `version_design/design/<lineage>/<version_subdir>/CONTEXT.md` 中补充引用关系，但主库基线仍保持在样本族级别，避免重复。
 

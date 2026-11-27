@@ -77,7 +77,7 @@ valid_holding.to_parquet(holding_path, index=False)                       # L201
 | B | 先双写两文件，下游切到新名，v1.3 移除旧写 | A + 兼容逻辑 | 迁移安全，过渡期有双份数据 |
 | C | 不落盘有效集，下游按 slice 的 `sample_id` 集合在内存 join | 3/4/5 各加一次 join | 无冗余文件，每步多一次开销 |
 
-实施时需同步更新：`docs/01_pipeline_contract.md` 的产物表、`docs/07_step_acceptance_criteria.md` 的 step2 验收、`tools/verify_v11.py` 的对应断言。
+实施时需同步更新：`docs/01_pipeline_contract.md` 的产物表、`docs/07_step_acceptance_criteria.md` 的 step2 验收。（v1.1 的 verify_v11.py 已归档、不随仓库分发，不再需要同步其断言。）
 
 ### 过渡期对策（当前版本）
 
