@@ -179,3 +179,39 @@ lgb:
 
 eval:
   pred_group_q: 5
+
+# ════════════════════════════════════════════════════════════
+# v1.1 新增：输入模式（step1 双模式，M4 实现；M1-M3 holding_file 是唯一可用值）
+# ════════════════════════════════════════════════════════════
+input:
+  mode: holding_file          # "holding_file"（默认旧路径）| "samples"（M4 起可用）
+
+# ════════════════════════════════════════════════════════════
+# v1.1 新增：学习目标
+# ════════════════════════════════════════════════════════════
+target:
+  source: holding_return      # "holding_return"（默认）| "label_file"
+  label: ""                   # source=label_file 时必填
+  horizon_days: 0             # label 对应的前视跨度（天数）
+  samples_id: auto            # "auto" = 由 build_samples 推导
+  on_missing_samples: error   # v1.1 仅支持 error
+  on_missing_label: error     # v1.1 仅支持 error
+
+# ════════════════════════════════════════════════════════════
+# v1.1 新增：前置层参数（data_prep 层，不占 step 编号）
+# ════════════════════════════════════════════════════════════
+data_prep:
+  date_range_start: null      # 信号日起始过滤（null = 不限）
+  date_range_end: null        # 信号日结束过滤（null = 不限）
+  universe:
+    exclude_prefixes: ["sh000", "sz399", "sh950"]  # 排除指数前缀
+    min_history_days: 60      # 每个 symbol 最少非停牌天数
+  samples:
+    method: bollinger_breakout  # 采样方法
+    params: {ma_period: 20.0, std_mult: 2.0}
+    max_samples: null         # null = 全量保留；正整数 = 分年等距抽样
+  labels:
+    drop_blocked_entries: true  # 开盘涨停建仓日置 NaN
+    params:
+      future_return: {horizons: [5, 10, 20, 40]}
+      trend_quality: {horizon: 20}

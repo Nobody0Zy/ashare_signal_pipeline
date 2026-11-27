@@ -62,6 +62,41 @@ ashare_signal_pipeline/
 └── run_bagging_experiment.py
 ```
 
+## 报告生成（v1.1.1+）
+
+v1.1.1 引入三份受众明确的报告 + 数据卡 + 参考页，取代原来的"大杂烩 Markdown + HTML"：
+
+| 报告 | 受众 | 格式 | 命令 |
+| :--- | :--- | :--- | :--- |
+| `reports/engineering.md` | 工程师 | Markdown | 见下方 |
+| `reports/experiment.md` | 研究员 | Markdown | 见下方 |
+| `reports/executive.html` | 管理层 | HTML（自包含） | 见下方 |
+| `data/reference/<sid>/datacard.md` | T2 数据卡 | Markdown | 见下方 |
+| `data/reference/_kernel/<ver>/reference.md` | T3 参考页 | Markdown | 见下方 |
+
+**生成命令**（在 step1~step6 完成并运行 `analyze_experiment_results.py` 之后）：
+
+```bash
+# 生成三份报告 + 清单 + 旧名别名（v2 布局）
+python tools/build_reports.py \
+  --manifest outputs/<ev>/metadata/experiment_manifest.json \
+  --types engineering,experiment,executive \
+  --layout v2
+
+# 生成数据卡 + 参考页
+python tools/build_reports.py \
+  --manifest outputs/<ev>/metadata/experiment_manifest.json \
+  --types datacard,reference
+
+# 或一次生成全部
+python tools/build_reports.py \
+  --manifest outputs/<ev>/metadata/experiment_manifest.json \
+  --types engineering,experiment,executive,datacard,reference \
+  --layout v2
+```
+
+产物位于 `outputs/<ev>/analysis/reports/`；数据卡与参考页写入 `data/reference/`（不入 git）。
+
 ## 文档导航
 
 - 规则入口：`AGENTS.md`
@@ -71,6 +106,10 @@ ashare_signal_pipeline/
 - 硬约束：`docs/01_pipeline_contract.md`
 - 开新谱系/新版本：`docs/08_lineage_startup.md`
 - 架构总览：`docs/10_architecture.md`
+
+## 版本记录
+
+[v1.1.x 重构说明](version_log/)
 
 ## 环境要求
 

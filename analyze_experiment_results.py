@@ -8,7 +8,9 @@ import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+import hashlib
+import re
 
 import matplotlib
 
@@ -37,6 +39,7 @@ ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = "configs/report_analysis/default.yaml"
 BASE_COLUMNS = {"sample_id", "signal_date", "target", "target_raw", "y_pred"}
 PREFERRED_CN_FONTS = ["Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "Arial Unicode MS"]
+SCHEMA_VERSION = "report-summary/1"
 
 
 @dataclass
@@ -1563,7 +1566,7 @@ def _build_threshold_display_table(threshold_df: pd.DataFrame, overall_test: Dic
     return pd.DataFrame(rows)
 
 
-def render_markdown_report(
+def _render_markdown_legacy(
     bundle: ArtifactBundle,
     config: AnalysisConfig,
     clean_stats: Dict[str, Dict[str, int]],
@@ -1793,7 +1796,11 @@ def render_markdown_report(
         ),
         "",
         "### 2.3 步骤1：原始数据准备",
-        "步骤1的任务是把原始持仓与行情数据清洗成可建模样本，解决脏数据、空值和基础字段完整性问题。",
+        "步骤1的任务是" + (
+            "把样本集与标签按 sample_id 对齐合并，丢弃标签为空的行，记录覆盖率。"
+            if step1_details.get("input_mode") == "samples"
+            else "把原始持仓与行情数据清洗成可建模样本，解决脏数据、空值和基础字段完整性问题。"
+        ),
         "",
         f"- 清洗后有效样本数：{_fmt_int(step1_details.get('sample_count'))}",
         f"- 信号日期范围：{_fmt_date_yyyymmdd(step1_details.get('signal_date_min'))} ~ {_fmt_date_yyyymmdd(step1_details.get('signal_date_max'))}",
@@ -2000,7 +2007,7 @@ def render_markdown_report(
     return "\n".join(line for line in lines if line is not None) + "\n"
 
 
-def render_leadership_html(
+def _render_leadership_legacy(
         bundle: ArtifactBundle,
         config: AnalysisConfig,
         split_frames: Dict[str, pd.DataFrame],
@@ -2216,6 +2223,724 @@ def render_leadership_html(
 """
 
 
+def render_markdown_report(
+    bundle: ArtifactBundle,
+    config: AnalysisConfig,
+    clean_stats: Dict[str, Dict[str, int]],
+    split_frames: Dict[str, pd.DataFrame],
+    quintile_df: pd.DataFrame,
+    median_df: pd.DataFrame,
+    median_uplift: Dict[str, Any],
+    threshold_df: pd.DataFrame,
+    threshold_summary: Dict[str, Any],
+    monotonic_df: pd.DataFrame,
+    monotonic_summary: Dict[str, Any],
+    feature_importance_df: Optional[pd.DataFrame],
+    feature_importance_summary: Dict[str, Any],
+    clip_percentiles: Dict[str, Any],
+    state_payload: Dict[str, Any],
+    resolved_params: Dict[str, Any],
+    model_feature_schema: Dict[str, Any],
+    _summary_payload: Optional[Dict[str, Any]] = None,
+) -> str:
+    """M1 thin wrapper: delegates to report.experiment.render_experiment."""
+    from report.experiment import render_experiment
+    # Use in-memory summary if supplied, else load from disk
+    if _summary_payload is not None:
+        summary = dict(_summary_payload)
+    else:
+        summary = json.loads((bundle.analysis_dir / "report_summary.json").read_text(encoding="utf-8"))
+    summary["_render_ctx"] = {
+        "bundle": bundle,
+        "config": config,
+        "clean_stats": clean_stats,
+        "split_frames": split_frames,
+        "quintile_df": quintile_df,
+        "median_df": median_df,
+        "median_uplift": median_uplift,
+        "threshold_df": threshold_df,
+        "threshold_summary": threshold_summary,
+        "monotonic_df": monotonic_df,
+        "monotonic_summary": monotonic_summary,
+        "feature_importance_df": feature_importance_df,
+        "feature_importance_summary": feature_importance_summary,
+        "clip_percentiles": clip_percentiles,
+        "state_payload": state_payload,
+        "resolved_params": resolved_params,
+        "model_feature_schema": model_feature_schema,
+    }
+    return render_experiment(summary)
+
+
+def render_leadership_html(
+    bundle: ArtifactBundle,
+    config: AnalysisConfig,
+    split_frames: Dict[str, pd.DataFrame],
+    quintile_df: pd.DataFrame,
+    median_df: pd.DataFrame,
+    median_uplift: Dict[str, Any],
+    threshold_df: pd.DataFrame,
+    threshold_summary: Dict[str, Any],
+    monotonic_summary: Dict[str, Any],
+    feature_importance_df: Optional[pd.DataFrame],
+    state_payload: Dict[str, Any],
+    resolved_params: Dict[str, Any],
+    _summary_payload: Optional[Dict[str, Any]] = None,
+) -> str:
+    """M1 thin wrapper: delegates to report._legacy for leadership HTML."""
+    from report._legacy import render_leadership_html_legacy
+    summary: Dict[str, Any] = {}
+    if _summary_payload is not None:
+        summary = dict(_summary_payload)
+    summary["_render_ctx"] = {
+        "bundle": bundle,
+        "config": config,
+        "split_frames": split_frames,
+        "quintile_df": quintile_df,
+        "median_df": median_df,
+        "median_uplift": median_uplift,
+        "threshold_df": threshold_df,
+        "threshold_summary": threshold_summary,
+        "monotonic_summary": monotonic_summary,
+        "feature_importance_df": feature_importance_df,
+        "state_payload": state_payload,
+        "resolved_params": resolved_params,
+    }
+    return render_leadership_html_legacy(summary)
+
+
+# ─────────────────────── M0: fact-table collectors ──────────────────────── #
+
+def _collect_run_env() -> Dict[str, Any]:
+    """Collect runtime environment info (git commit + 6 package versions)."""
+    import sys
+    import subprocess as _sp
+
+    git_commit = ""
+    try:
+        r = _sp.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, cwd=ROOT, timeout=5,
+        )
+        if r.returncode == 0:
+            git_commit = r.stdout.strip()
+    except Exception:
+        pass
+
+    def _pkg_ver(name: str) -> Optional[str]:
+        try:
+            import importlib.metadata
+            return importlib.metadata.version(name)
+        except Exception:
+            return None
+
+    return {
+        "git_commit": git_commit,
+        "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        "pandas": _pkg_ver("pandas"),
+        "numpy": _pkg_ver("numpy"),
+        "scipy": _pkg_ver("scipy"),
+        "lightgbm": _pkg_ver("lightgbm"),
+        "tsfresh": _pkg_ver("tsfresh"),
+    }
+
+
+def _collect_runs(bundle: ArtifactBundle) -> Dict[str, Any]:
+    """Collect per-mode pipeline state data from metadata/pipeline_state_*.json."""
+    if bundle.manifest_path is None:
+        return {}
+    metadata_dir = bundle.manifest_path.parent
+    mode_state_files: Dict[str, List] = {}
+    for state_file in sorted(metadata_dir.glob("pipeline_state_*.json")):
+        m = re.search(r"_(smoke|full)\.json$", state_file.name)
+        if not m:
+            continue
+        mode = m.group(1)
+        try:
+            state = _read_json(state_file)
+        except Exception:
+            continue
+        mode_state_files.setdefault(mode, []).append((state.get("updated_at", ""), state))
+    runs: Dict[str, Any] = {}
+    for mode, entries in mode_state_files.items():
+        entries.sort(key=lambda x: x[0])
+        latest = entries[-1][1]
+        rerun_count = len(entries) - 1
+        step_info = {
+            sk: {"duration_seconds": sv.get("duration_seconds"), "status": sv.get("status")}
+            for sk, sv in latest.get("steps", {}).items()
+        }
+        total_secs = sum((sv.get("duration_seconds") or 0) for sv in latest.get("steps", {}).values())
+        runs[mode] = {
+            "steps": step_info,
+            "updated_at": entries[-1][0],
+            "rerun_count": rerun_count,
+            "valid_samples": latest.get("steps", {}).get("step_2", {}).get("details", {}).get("valid_samples"),
+            "selected_features": latest.get("steps", {}).get("step_4", {}).get("details", {}).get("selected_features"),
+            "best_iteration": latest.get("steps", {}).get("step_6", {}).get("details", {}).get("best_iteration"),
+            "mae": latest.get("steps", {}).get("step_6", {}).get("details", {}).get("mae"),
+            "spearman": latest.get("steps", {}).get("step_6", {}).get("details", {}).get("spearman"),
+            "total_seconds": total_secs,
+        }
+    return runs
+
+
+def _collect_smoke_vs_full(runs: Dict[str, Any]) -> Dict[str, Any]:
+    """Derive smoke-vs-full comparison dict from already-collected runs."""
+    metrics = ["valid_samples", "selected_features", "best_iteration", "mae", "spearman", "total_seconds"]
+    result: Dict[str, Any] = {}
+    for mname in metrics:
+        smoke_val = runs.get("smoke", {}).get(mname) if "smoke" in runs else None
+        full_val = runs.get("full", {}).get(mname) if "full" in runs else None
+        delta: Optional[float] = None
+        if smoke_val is not None and full_val is not None:
+            try:
+                delta = float(full_val) - float(smoke_val)
+            except (TypeError, ValueError):
+                pass
+        result[mname] = {"smoke": smoke_val, "full": full_val, "delta": delta}
+    return result
+
+
+def _collect_input_identity(state_payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Collect 8 input-identity fields from step1 details."""
+    det = _step_details(state_payload, "step_1")
+    return {
+        "input_mode": det.get("input_mode", ""),
+        "coupling_mode": det.get("coupling_mode", ""),
+        "samples_id": det.get("samples_id", ""),
+        "label_name": det.get("label_name", ""),
+        "label_hash": det.get("label_hash", ""),
+        "label_non_null_ratio": det.get("label_non_null_ratio"),
+        "dropped_no_target": det.get("dropped_no_target"),
+        "target_coverage": det.get("target_coverage"),
+    }
+
+
+def _collect_fingerprints(state_payload: Dict[str, Any], resolved_params: Dict[str, Any]) -> Dict[str, Any]:
+    """Collect 4 experiment fingerprints."""
+    det = _step_details(state_payload, "step_1")
+    rp_hash = ""
+    try:
+        from data_prep.ids import canonical_json
+        rp_hash = hashlib.sha256(canonical_json(resolved_params).encode()).hexdigest()[:8]
+    except Exception:
+        pass
+    return {
+        "datebar": det.get("datebar_fingerprint", ""),
+        "samples_set": det.get("samples_set_hash", ""),
+        "label_params": det.get("label_hash", ""),
+        "resolved_params": rp_hash,
+    }
+
+
+def _collect_buffer(state_payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Collect buffer metrics from step5 details."""
+    det = _step_details(state_payload, "step_5")
+    return {
+        "required": det.get("buffer_trading_days_required"),
+        "train_val_days": det.get("buffer_train_val_days"),
+        "val_test_days": det.get("buffer_val_test_days"),
+        "status": det.get("buffer_check_status", ""),
+    }
+
+
+def _collect_feature_funnel(
+    state_payload: Dict[str, Any],
+    resolved_params: Dict[str, Any],
+    model_feature_schema: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Collect feature funnel info and self-consistency check."""
+    det4 = _step_details(state_payload, "step_4")
+    det5 = _step_details(state_payload, "step_5")
+    raw_extracted = det4.get("raw_extracted_feature_columns")
+    zero_var = det4.get("zero_variance_dropped")
+    selected = det4.get("selected_features")
+    top_candidates: Optional[int] = None
+    if isinstance(resolved_params, dict):
+        top_candidates = (resolved_params.get("feature_selection") or {}).get("top_candidates")
+    manual_added = len(det5.get("manual_features", []) or []) if det5 else 0
+    model_input = (model_feature_schema or {}).get("feature_count")
+    candidates = (raw_extracted - zero_var) if (raw_extracted is not None and zero_var is not None) else None
+    consistency_ok: Optional[bool] = None
+    if selected is not None and manual_added is not None and model_input is not None:
+        consistency_ok = (selected + manual_added) == model_input
+    return {
+        "raw_extracted": raw_extracted,
+        "zero_variance_dropped": zero_var,
+        "candidates": candidates,
+        "top_candidates": top_candidates,
+        "selected": selected,
+        "manual_added": manual_added,
+        "model_input": model_input,
+        "consistency_ok": consistency_ok,
+    }
+
+
+def _collect_clip_and_target_stats(
+    clip_percentiles: Dict[str, Any],
+    split_frames: Dict[str, pd.DataFrame],
+    config: AnalysisConfig,
+) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+    """Return (clip_info, target_stats_by_split, drift_hint)."""
+    clip_info: Dict[str, Any] = {
+        "p1": (clip_percentiles or {}).get("p1"),
+        "p99": (clip_percentiles or {}).get("p99"),
+        "by_split": {},
+    }
+    target_stats: Dict[str, Any] = {}
+    drift_hint: Dict[str, Any] = {"thresholds": {"median_pp": 1.0, "win_rate_pp": 5.0}}
+    train_p50: Optional[float] = None
+    train_win_rate: Optional[float] = None
+    for split_name, df in split_frames.items():
+        raw_col = config.target_raw_col
+        tgt_col = config.target_col
+        if raw_col in df.columns:
+            raw = df[raw_col].dropna()
+            if len(raw) > 0:
+                p25 = float(raw.quantile(0.25))
+                p50 = float(raw.quantile(0.50))
+                p75 = float(raw.quantile(0.75))
+                win_rate = float((raw > 0).mean())
+                target_stats[split_name] = {
+                    "min": float(raw.min()),
+                    "p25": p25, "p50": p50, "p75": p75,
+                    "max": float(raw.max()),
+                    "iqr": p75 - p25,
+                    "mean": float(raw.mean()),
+                    "std": float(raw.std()),
+                    "win_rate": win_rate,
+                }
+                if split_name == "train":
+                    train_p50 = p50
+                    train_win_rate = win_rate
+        if raw_col in df.columns and tgt_col in df.columns:
+            delta = (df[tgt_col] - df[raw_col]).abs()
+            clip_info["by_split"][split_name] = {
+                "clipped_count": int((delta > 1e-12).sum()),
+                "max_abs_delta": float(delta.max()) if len(delta) > 0 else 0.0,
+            }
+    thresholds = {"median_pp": 1.0, "win_rate_pp": 5.0}
+    drift_hint["thresholds"] = thresholds
+    for split_name, stats in target_stats.items():
+        if split_name == "train":
+            continue
+        med_delta = ((stats["p50"] - train_p50) * 100) if train_p50 is not None else None
+        wr_delta = ((stats["win_rate"] - train_win_rate) * 100) if train_win_rate is not None else None
+        exceeded = []
+        if med_delta is not None and abs(med_delta) > thresholds["median_pp"]:
+            exceeded.append("median")
+        if wr_delta is not None and abs(wr_delta) > thresholds["win_rate_pp"]:
+            exceeded.append("win_rate")
+        drift_hint[split_name] = {
+            "median_delta_pp": round(med_delta, 4) if med_delta is not None else None,
+            "win_rate_delta_pp": round(wr_delta, 4) if wr_delta is not None else None,
+            "exceeded": exceeded,
+        }
+    return clip_info, target_stats, drift_hint
+
+
+def _collect_artifact_sizes(bundle: ArtifactBundle) -> List[Dict[str, Any]]:
+    """Scan 7 artifact root directories, return per-file records."""
+    if not bundle.experiment_version:
+        return []
+    ev = bundle.experiment_version
+    dirs = [
+        ("processed", ROOT / f"data/processed/{ev}"),
+        ("slices", ROOT / f"data/slices/{ev}"),
+        ("ts_features", ROOT / f"data/ts_features/{ev}"),
+        ("features", ROOT / f"data/features/{ev}"),
+        ("splits", ROOT / f"data/splits/{ev}"),
+        ("models", ROOT / f"models/{ev}"),
+        ("outputs", ROOT / f"outputs/{ev}"),
+    ]
+    result: List[Dict[str, Any]] = []
+    for group, dir_path in dirs:
+        if not dir_path.exists():
+            continue
+        for fpath in dir_path.rglob("*"):
+            if not fpath.is_file():
+                continue
+            try:
+                stat = fpath.stat()
+                rel = str(fpath.relative_to(ROOT)).replace("\\", "/")
+                result.append({
+                    "path": rel,
+                    "bytes": stat.st_size,
+                    "mtime": datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
+                    "group": group,
+                })
+            except Exception:
+                pass
+    return result
+
+
+def _collect_workload(state_payload: Dict[str, Any], resolved_params: Dict[str, Any]) -> Dict[str, Any]:
+    """Compute per-step workload attribution (I/O vs CPU)."""
+    if not state_payload:
+        return {}
+    _PROFILE_OPS = {"base": 12, "v3_enriched": 16}
+    indicators_profile = (
+        (resolved_params or {}).get("indicators", {}).get("profile", "base")
+        if isinstance(resolved_params, dict) else "base"
+    )
+    step3_ops = _PROFILE_OPS.get(str(indicators_profile), 12)
+    det1 = _step_details(state_payload, "step_1")
+    det3 = _step_details(state_payload, "step_3")
+    det4 = _step_details(state_payload, "step_4")
+    det5 = _step_details(state_payload, "step_5")
+    det6 = _step_details(state_payload, "step_6")
+    step3_rows = det3.get("rows")
+    step4_raw = det4.get("raw_extracted_feature_columns")
+    step5_rows: Optional[int] = None
+    if det5:
+        step5_rows = (
+            (det5.get("train_rows") or 0)
+            + (det5.get("val_rows") or 0)
+            + (det5.get("test_rows") or 0)
+        )
+    tsfresh_jobs = int(det4.get("tsfresh_jobs") or 1) or 1
+    specs = [
+        ("step1", det1.get("sample_count"), 1, 1, "io", "samples"),
+        ("step2", step3_rows, 1, 1, "io", "rows"),
+        ("step3", step3_rows, step3_ops, 1, "cpu", "rows"),
+        ("step4", det4.get("samples"), step4_raw, tsfresh_jobs, "cpu", "samples"),
+        ("step5", step5_rows, 1, 1, "io", "rows"),
+        ("step6", det6.get("best_iteration"), 1, 1, "cpu", "trees"),
+    ]
+    sk_map = {
+        "step1": "step_1", "step2": "step_2", "step3": "step_3",
+        "step4": "step_4", "step5": "step_5", "step6": "step_6",
+    }
+    result: Dict[str, Any] = {}
+    for step_name, units, ops, parallelism, attribution, units_kind in specs:
+        dur = state_payload.get("steps", {}).get(sk_map[step_name], {}).get("duration_seconds")
+        total_ops = None
+        if units is not None and ops is not None:
+            try:
+                total_ops = int(units) * int(ops)
+            except (TypeError, ValueError):
+                pass
+        throughput = None
+        if units is not None and dur and dur > 0:
+            try:
+                throughput = round(float(units) / float(dur), 1)
+            except (TypeError, ValueError):
+                pass
+        result[step_name] = {
+            "input_units": units,
+            "units_kind": units_kind,
+            "ops_per_unit": ops,
+            "total_ops": total_ops,
+            "parallelism": parallelism,
+            "throughput_per_sec": throughput,
+            "attribution": attribution,
+        }
+    return result
+
+
+def _collect_param_effective(state_payload: Dict[str, Any], resolved_params: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Build param_effective list with 10 required + optional extras."""
+    if not isinstance(resolved_params, dict):
+        return []
+    input_mode = (resolved_params.get("input") or {}).get("mode", "holding_file")
+    is_samples = input_mode == "samples"
+    items: List[Dict[str, Any]] = [
+        {"key": "input.mode", "configured": input_mode, "effective": True,
+         "reason": "决定分支（样本集模式 vs 持仓文件模式）"},
+        {"key": "target.source",
+         "configured": (resolved_params.get("target") or {}).get("source", ""),
+         "effective": True, "reason": "决定标签来源"},
+        {"key": "target.label",
+         "configured": (resolved_params.get("target") or {}).get("label", ""),
+         "effective": is_samples,
+         "reason": "" if is_samples else "旧路径不用标签文件（holding_file 模式）"},
+        {"key": "data_prep.samples.*",
+         "configured": str((resolved_params.get("data_prep") or {}).get("samples", {})),
+         "effective": False, "reason": "复用已有 samples_id，仅参与 id 推导"},
+        {"key": "data_prep.labels.*",
+         "configured": str((resolved_params.get("data_prep") or {}).get("labels", {})),
+         "effective": False, "reason": "复用已有 samples_id，仅参与 id 推导"},
+        {"key": "manual_features.include_signal_date_selection_score",
+         "configured": (resolved_params.get("manual_features") or {}).get(
+             "include_signal_date_selection_score", False),
+         "effective": not is_samples,
+         "reason": "samples 模式无该列" if is_samples else ""},
+        {"key": "manual_features.include_non_trading_ratio",
+         "configured": (resolved_params.get("manual_features") or {}).get("include_non_trading_ratio", True),
+         "effective": True, "reason": ""},
+        {"key": "indicators.profile",
+         "configured": (resolved_params.get("indicators") or {}).get("profile", "base"),
+         "effective": True, "reason": ""},
+        {"key": "tsfresh.fc_profile",
+         "configured": (resolved_params.get("tsfresh") or {}).get("fc_profile", "compact"),
+         "effective": True, "reason": ""},
+        {"key": "lgb.num_threads",
+         "configured": (resolved_params.get("lgb") or {}).get("num_threads", 1),
+         "effective": True, "reason": ""},
+    ]
+    for opt_key, section, field in [
+        ("sample_filter.max_holding_days", "sample_filter", "max_holding_days"),
+        ("time_split.enforce_buffer", "time_split", "enforce_buffer"),
+        ("feature_selection.selection_mode", "feature_selection", "selection_mode"),
+    ]:
+        sec = resolved_params.get(section) or {}
+        if isinstance(sec, dict) and field in sec:
+            items.append({"key": opt_key, "configured": sec[field], "effective": True, "reason": ""})
+    return items
+
+
+def _collect_determinism(
+    bundle: ArtifactBundle,
+    state_payload: Dict[str, Any],
+    resolved_params: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Check determinism from same-mode reruns (executed only if 2+ state files for one mode)."""
+    executed = False
+    same_seed_rerun: Optional[bool] = None
+    if bundle.manifest_path is not None:
+        metadata_dir = bundle.manifest_path.parent
+        mode_states: Dict[str, List] = {}
+        for sf in sorted(metadata_dir.glob("pipeline_state_*.json")):
+            m = re.search(r"_(smoke|full)\.json$", sf.name)
+            if not m:
+                continue
+            mode = m.group(1)
+            try:
+                mode_states.setdefault(mode, []).append(_read_json(sf))
+            except Exception:
+                pass
+        for mode, states in mode_states.items():
+            if len(states) >= 2:
+                executed = True
+                m0 = states[0].get("steps", {}).get("step_6", {}).get("details", {})
+                same_seed_rerun = all(
+                    s.get("steps", {}).get("step_6", {}).get("details", {}) == m0
+                    for s in states[1:]
+                )
+                break
+    rp = resolved_params if isinstance(resolved_params, dict) else {}
+    seed = str(rp.get("seed", (rp.get("lgb") or {}).get("seed", "42")))
+    num_threads = str((rp.get("lgb") or {}).get("num_threads", "1"))
+    return {
+        "executed": executed,
+        "same_seed_rerun": same_seed_rerun,
+        "sources_fixed": [
+            f"seed={seed}",
+            f"num_threads={num_threads}",
+            "tsfresh 结果按 sample_id 对齐（并行仅改变计算顺序）",
+        ],
+    }
+
+
+def _collect_robustness(
+    bundle: ArtifactBundle,
+    split_frames: Dict[str, pd.DataFrame],
+    model_feature_schema: Dict[str, Any],
+    resolved_params: Dict[str, Any],
+) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], List[Dict[str, Any]]]:
+    """Compute (feature_drift, label_overlap, group_time_concentration, monthly_returns)."""
+
+    # feature drift (KS train vs test per model feature)
+    feature_drift: Dict[str, Any] = {}
+    try:
+        from scipy.stats import ks_2samp
+        feat_cols = (model_feature_schema or {}).get("feature_columns", [])
+        t_df = split_frames.get("train")
+        te_df = split_frames.get("test")
+        if feat_cols and t_df is not None and te_df is not None:
+            ks_recs = []
+            for c in feat_cols:
+                if c in t_df.columns and c in te_df.columns:
+                    t_v = t_df[c].dropna().values
+                    te_v = te_df[c].dropna().values
+                    if len(t_v) > 0 and len(te_v) > 0:
+                        ks_recs.append({"feature": c,
+                                        "ks": round(float(ks_2samp(t_v, te_v).statistic), 6)})
+            ks_recs.sort(key=lambda x: x["ks"], reverse=True)
+            count_over = sum(1 for r in ks_recs if r["ks"] > 0.1)
+            med_ks = float(pd.Series([r["ks"] for r in ks_recs]).median()) if ks_recs else 0.0
+            feature_drift = {
+                "top10": ks_recs[:10],
+                "count_over_0_1": count_over,
+                "median_ks": round(med_ks, 6),
+                "max_ks": ks_recs[0]["ks"] if ks_recs else 0.0,
+                "max_feature": ks_recs[0]["feature"] if ks_recs else "",
+            }
+        else:
+            feature_drift = {"top10": [], "count_over_0_1": None, "median_ks": None,
+                             "reason": "insufficient data"}
+    except ImportError:
+        feature_drift = {"top10": [], "count_over_0_1": None, "median_ks": None,
+                         "reason": "scipy not available"}
+    except Exception as e:
+        feature_drift = {"top10": [], "count_over_0_1": None, "median_ks": None,
+                         "reason": str(e)[:100]}
+
+    # label overlap (sample independence — test predictions only)
+    label_overlap: Dict[str, Any] = {"share_gap_le_horizon": None}
+    try:
+        horizon_days = int((resolved_params or {}).get("target", {}).get("horizon_days", 0) or 0)
+        te_df = split_frames.get("test")
+        if te_df is not None and "sample_id" in te_df.columns and horizon_days > 0:
+            _P14, _P8, _P6 = 10 ** 14, 10 ** 8, 10 ** 6
+            _MKT = {1: "sh", 2: "sz", 3: "bj"}
+            df = te_df[["sample_id", "signal_date"]].copy()
+            df["idxs"] = df["sample_id"].apply(
+                lambda s: f"{_MKT.get(int(s // _P14), 'unk')}{int((s // _P8) % _P6):06d}"
+            )
+            datebar_path: Optional[Path] = None
+            if bundle.experiment_version:
+                p = ROOT / f"data/processed/{bundle.experiment_version}/datebar.parquet"
+                if p.exists():
+                    datebar_path = p
+            if datebar_path:
+                db = pd.read_parquet(datebar_path)
+                db_active = (
+                    db[db["paused"] == 0][["idxs", "idxd"]].copy()
+                    if "paused" in db.columns
+                    else db[["idxs", "idxd"]].copy()
+                )
+                db_active = db_active.sort_values(["idxs", "idxd"])
+                db_active["t"] = db_active.groupby("idxs").cumcount()
+                df["idxd"] = df["signal_date"].astype("int64")
+                df = df.merge(
+                    db_active[["idxs", "idxd", "t"]].rename(columns={"t": "t_idx"}),
+                    on=["idxs", "idxd"], how="left",
+                )
+                df = df[df["t_idx"].notna()].sort_values(["idxs", "t_idx"])
+                df["gap"] = df.groupby("idxs")["t_idx"].diff()
+                df_prev = df[df["gap"].notna()]
+                n_with_prev = len(df_prev)
+                share = float((df_prev["gap"] <= horizon_days).mean()) if n_with_prev > 0 else 0.0
+                label_overlap = {
+                    "horizon_days": horizon_days,
+                    "share_gap_le_horizon": round(share, 6),
+                    "gap_p25": round(float(df_prev["gap"].quantile(0.25)), 2) if n_with_prev > 0 else None,
+                    "gap_p50": round(float(df_prev["gap"].quantile(0.50)), 2) if n_with_prev > 0 else None,
+                    "gap_p75": round(float(df_prev["gap"].quantile(0.75)), 2) if n_with_prev > 0 else None,
+                    "n_with_prev": n_with_prev,
+                }
+            else:
+                label_overlap = {"horizon_days": horizon_days, "share_gap_le_horizon": None,
+                                 "reason": "datebar not found"}
+        else:
+            label_overlap = {"share_gap_le_horizon": None, "reason": "test data or horizon_days not available"}
+    except Exception as e:
+        label_overlap = {"share_gap_le_horizon": None, "reason": str(e)[:100]}
+
+    # group time concentration (5 pred groups × year)
+    group_time_concentration: Dict[str, Any] = {"max_share": None}
+    try:
+        te_df = split_frames.get("test")
+        if te_df is not None and "signal_date" in te_df.columns and "y_pred" in te_df.columns:
+            df = te_df[["signal_date", "y_pred"]].copy()
+            df["year"] = df["signal_date"] // 10000
+            df["pred_group"] = pd.qcut(df["y_pred"], 5, labels=False, duplicates="drop")
+            ct = pd.crosstab(df["pred_group"], df["year"], normalize="index")
+            max_share = float(ct.values.max())
+            stack = ct.stack()
+            max_idx = stack.idxmax()
+            by_group = [
+                {"group": int(g), "year": int(y), "share": round(float(ct.loc[g, y]), 6)}
+                for g in ct.index
+                for y in ct.columns
+                if ct.loc[g, y] > 0
+            ]
+            group_time_concentration = {
+                "max_share": round(max_share, 6),
+                "group_of_max": int(max_idx[0]),
+                "by_group": by_group,
+            }
+        else:
+            group_time_concentration = {"max_share": None, "reason": "test frame or required columns not available"}
+    except Exception as e:
+        group_time_concentration = {"max_share": None, "reason": str(e)[:100]}
+
+    # monthly returns (test split, aggregate by ym)
+    monthly_returns: List[Dict[str, Any]] = []
+    try:
+        te_df = split_frames.get("test")
+        if te_df is not None and "signal_date" in te_df.columns and "target_raw" in te_df.columns:
+            df = te_df[["signal_date", "target_raw"]].copy()
+            df["ym"] = df["signal_date"] // 100
+            for ym, grp in df.groupby("ym"):
+                monthly_returns.append({
+                    "ym": int(ym),
+                    "mean": round(float(grp["target_raw"].mean()), 6),
+                    "count": int(len(grp)),
+                    "win_rate": round(float((grp["target_raw"] > 0).mean()), 6),
+                })
+    except Exception:
+        monthly_returns = []
+
+    return feature_drift, label_overlap, group_time_concentration, monthly_returns
+
+
+def _collect_label_span_stats(
+    state_payload: Dict[str, Any],
+    resolved_params: Dict[str, Any],
+    bundle: ArtifactBundle,
+) -> Optional[Dict[str, Any]]:
+    """Compute label span stats (calendar days). Returns None for holding_file mode."""
+    det1 = _step_details(state_payload, "step_1")
+    input_mode = det1.get("input_mode", "holding_file")
+    if input_mode != "samples":
+        return None
+    samples_id = det1.get("samples_id", "")
+    label_name = det1.get("label_name", "")
+    if not samples_id or not label_name:
+        return {"n_valid": None, "reason": "samples_id or label_name missing from state"}
+    label_path = ROOT / f"data/labels/{samples_id}/{label_name}.parquet"
+    if not label_path.exists():
+        return {"n_valid": None, "reason": f"label file not found: {label_path}"}
+    try:
+        SPAN_WARN_DAYS = 60
+        label_df = pd.read_parquet(label_path, columns=["entry_idxd", "exit_idxd"])
+        valid = label_df[(label_df["entry_idxd"] > 0) & (label_df["exit_idxd"] > 0)]
+        n_valid = int(len(valid))
+        if n_valid == 0:
+            return {"n_valid": 0, "median_days": None, "p99_days": None, "max_days": None,
+                    "share_gt_60d": 0.0, "n_gt_60d": 0, "longest_pause_rows": None, "policy": "uncapped"}
+        entry_dt = pd.to_datetime(valid["entry_idxd"].astype(str).str.zfill(8), format="%Y%m%d")
+        exit_dt = pd.to_datetime(valid["exit_idxd"].astype(str).str.zfill(8), format="%Y%m%d")
+        spans = (exit_dt - entry_dt).dt.days
+        median_days = int(spans.median())
+        p99_days = int(spans.quantile(0.99))
+        max_days = int(spans.max())
+        n_gt = int((spans > SPAN_WARN_DAYS).sum())
+        share_gt = float(n_gt / n_valid)
+        longest_pause_rows = None
+        if bundle.experiment_version:
+            db_path = ROOT / f"data/processed/{bundle.experiment_version}/datebar.parquet"
+            if db_path.exists():
+                try:
+                    db = pd.read_parquet(db_path, columns=["paused"])
+                    if "paused" in db.columns:
+                        paused = (db["paused"] == 1).astype(int).values
+                        max_run = cur = 0
+                        for p_val in paused:
+                            cur = cur + 1 if p_val else 0
+                            max_run = max(max_run, cur)
+                        longest_pause_rows = max_run
+                except Exception:
+                    pass
+        return {
+            "n_valid": n_valid,
+            "median_days": median_days,
+            "p99_days": p99_days,
+            "max_days": max_days,
+            "share_gt_60d": round(share_gt, 6),
+            "n_gt_60d": n_gt,
+            "longest_pause_rows": longest_pause_rows,
+            "policy": "uncapped",
+        }
+    except Exception as e:
+        return {"n_valid": None, "reason": str(e)[:200]}
+
+
+# ─────────────────────────────────────────────────────────────────────────── #
+
 def render_summary_json(
     bundle: ArtifactBundle,
     clean_stats: Dict[str, Dict[str, int]],
@@ -2232,12 +2957,48 @@ def render_summary_json(
     state_payload: Dict[str, Any],
     resolved_params: Dict[str, Any],
     model_feature_schema: Dict[str, Any],
+    clip_percentiles: Dict[str, Any],
     config: AnalysisConfig,
 ) -> Dict[str, Any]:
     split_overview = _build_split_overview(split_frames, config)
     overall_test = _build_overall_metrics(split_frames.get("test"), config)
+    split_model_df = _build_split_model_performance_table(split_frames, config)
+
+    # collect all new M0 fields
+    run_env = _collect_run_env()
+    runs = _collect_runs(bundle)
+    run_modes = sorted(runs.keys())
+    input_identity = _collect_input_identity(state_payload)
+    fingerprints = _collect_fingerprints(state_payload, resolved_params)
+    buffer_info = _collect_buffer(state_payload)
+    feature_funnel = _collect_feature_funnel(state_payload, resolved_params, model_feature_schema)
+    clip_info, target_stats_by_split, drift_hint = _collect_clip_and_target_stats(
+        clip_percentiles, split_frames, config
+    )
+    artifact_sizes = _collect_artifact_sizes(bundle)
+    smoke_vs_full = _collect_smoke_vs_full(runs)
+    workload = _collect_workload(state_payload, resolved_params)
+    param_effective = _collect_param_effective(state_payload, resolved_params)
+    determinism = _collect_determinism(bundle, state_payload, resolved_params)
+    feature_drift, label_overlap, group_time_concentration, monthly_returns = _collect_robustness(
+        bundle, split_frames, model_feature_schema, resolved_params
+    )
+    label_span_stats = _collect_label_span_stats(state_payload, resolved_params, bundle)
+
+    # derive datacard / reference paths (files created in M2; paths computed here)
+    sid = input_identity.get("samples_id", "")
+    if sid:
+        datacard_path = f"data/reference/{sid}/datacard.md"
+    else:
+        datacard_path = "data/reference/_legacy_holding/datacard.md"
+    base_version = (resolved_params or {}).get("experiment", {}).get("base_version", "") if isinstance(resolved_params, dict) else ""
+    reference_path = f"data/reference/_kernel/{base_version}/reference.md" if base_version else ""
+
     return {
+        "schema_version": SCHEMA_VERSION,
+        "run_env": run_env,
         "experiment_version": bundle.experiment_version,
+        "run_modes": run_modes,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "input_artifacts": {key: _rel(path) for key, path in bundle.input_artifacts.items() if path is not None},
         "analysis_scope": {
@@ -2253,6 +3014,7 @@ def render_summary_json(
         "cleaning": clean_stats,
         "split_overview": split_overview.to_dict(orient="records"),
         "overall_test": overall_test,
+        "split_model_performance": split_model_df.to_dict(orient="records"),
         "test_quintile": quintile_df.to_dict(orient="records"),
         "test_median_split": {
             "rows": median_df.to_dict(orient="records"),
@@ -2277,13 +3039,76 @@ def render_summary_json(
             "leadership_html": "experiment_summary_for_leadership.html",
             "summary_json": "report_summary.json",
         },
-        "feature_importance_top20": feature_importance_df.to_dict(orient="records") if feature_importance_df is not None else [],
+        "feature_importance_top20": (
+            feature_importance_df.to_dict(orient="records") if feature_importance_df is not None else []
+        ),
         "feature_alignment": feature_importance_summary,
+        # ── new M0 fields ──────────────────────────────────────────────────
+        "input_identity": input_identity,
+        "fingerprints": fingerprints,
+        "buffer": buffer_info,
+        "feature_funnel": feature_funnel,
+        "clip_percentiles": clip_info,
+        "target_stats_by_split": target_stats_by_split,
+        "drift_hint": drift_hint,
+        "artifact_sizes": artifact_sizes,
+        "smoke_vs_full": smoke_vs_full,
+        "datacard_path": datacard_path,
+        "reference_path": reference_path,
+        "workload": workload,
+        "param_effective": param_effective,
+        "determinism": determinism,
+        "feature_drift": feature_drift,
+        "label_overlap": label_overlap,
+        "group_time_concentration": group_time_concentration,
+        "monthly_returns": monthly_returns,
+        # ── conditional key (A-29 contract) ───────────────────────────────
+        "label_span_stats": label_span_stats,
+        # ── per-mode run data (not in required_summary_keys) ─────────────
+        "runs": runs,
     }
 
 
 def _write_dataframe(df: pd.DataFrame, path: Path) -> None:
     df.to_csv(path, index=False, encoding="utf-8-sig")
+
+
+def _plot_distribution(
+    split_frames: Dict[str, pd.DataFrame],
+    output_path: Path,
+    col: str,
+    clip_low_pct: Optional[float],
+    clip_high_pct: Optional[float],
+    title: str,
+    config: "AnalysisConfig",
+) -> None:
+    """Plot distribution of `col` across test split (M4: A-25 distribution figures)."""
+    _configure_chinese_font()
+    test_df = split_frames.get("test")
+    if test_df is None or col not in test_df.columns:
+        return
+    series = test_df[col].dropna()
+    if len(series) == 0:
+        return
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(8, 4), dpi=config.plot_dpi)
+    if clip_low_pct is not None and clip_high_pct is not None:
+        lo = series.quantile(clip_low_pct)
+        hi = series.quantile(clip_high_pct)
+        display_series = series.clip(lower=lo, upper=hi)
+    else:
+        display_series = series
+    ax.hist(display_series, bins=100, color="#4c72b0", alpha=0.75, edgecolor="none")
+    ax.axvline(0, color="#d62728", linewidth=1.2, linestyle="--")
+    ax.set_title(title, fontsize=11)
+    ax.set_xlabel("收益率")
+    ax.set_ylabel("频数")
+    if clip_low_pct is not None:
+        ax.text(0.98, 0.95, f"统计量未裁，仅显示 {clip_low_pct*100:.1f}%–{clip_high_pct*100:.1f}%",
+                transform=ax.transAxes, ha="right", va="top", fontsize=8, color="gray")
+    plt.tight_layout()
+    plt.savefig(output_path, bbox_inches="tight")
+    plt.close(fig)
 
 
 def _scope_text(available_splits: List[str]) -> str:
@@ -2323,6 +3148,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--strict", action="store_true", help="强制启用严格模式")
     parser.add_argument("--no-strict", action="store_true", help="工件缺失时降级运行而非报错退出")
     parser.add_argument("--dry-run", action="store_true", help="仅解析和打印输入输出，不生成文件")
+    parser.add_argument("--emit-summary-only", action="store_true",
+                        help="只写 report_summary.json，不渲染报告、不生成图/表")
+    parser.add_argument("--layout", choices=["v1", "v2"], default="v1",
+                        help="产物布局模式：v1 只写报告，v2 额外写清单与别名（M5 起默认 v2）")
     args = parser.parse_args()
     if args.strict and args.no_strict:
         parser.error("--strict 与 --no-strict 不能同时使用。")
@@ -2387,6 +3216,33 @@ def main() -> int:
     resolved_params = _load_yaml_payload(resolved_params_path)
     model_feature_schema = _load_optional_json(bundle.input_artifacts.get("model_feature_schema"), "model_feature_schema")
 
+    # Always compute and write report_summary.json first
+    summary_payload = render_summary_json(
+        bundle,
+        clean_stats,
+        split_frames,
+        quintile_df,
+        median_df,
+        median_uplift,
+        threshold_df,
+        threshold_summary,
+        monotonic_df,
+        monotonic_summary,
+        feature_importance_df,
+        feature_importance_summary,
+        state_payload,
+        resolved_params,
+        model_feature_schema,
+        clip_percentiles,
+        config,
+    )
+    _write_json(bundle.analysis_dir / "report_summary.json", summary_payload)
+    print(f"report_summary.json 已写入: {_rel(bundle.analysis_dir / 'report_summary.json')}")
+
+    if args.emit_summary_only:
+        print("--emit-summary-only 模式：跳过图表与报告渲染。")
+        return 0
+
     _write_dataframe(quintile_df, bundle.analysis_dir / "test_quintile_groups.csv")
     _write_dataframe(median_df, bundle.analysis_dir / "test_median_split.csv")
     _write_dataframe(threshold_df, bundle.analysis_dir / "test_threshold_filters.csv")
@@ -2437,6 +3293,34 @@ def main() -> int:
     obsolete_bar_plot = bundle.analysis_dir / "monotonic_groups_bar.png"
     if obsolete_bar_plot.exists():
         obsolete_bar_plot.unlink()
+
+    # Copy monotonic images to assets/ so reports/ can reference them via ../assets/
+    _assets_dir = bundle.analysis_dir / "assets"
+    _assets_dir.mkdir(parents=True, exist_ok=True)
+    for _img in bundle.analysis_dir.glob("monotonic_*.png"):
+        _dst = _assets_dir / _img.name
+        if not _dst.exists() or _dst.stat().st_mtime < _img.stat().st_mtime:
+            import shutil as _shutil
+            _shutil.copy2(_img, _dst)
+
+    # M4: generate distribution plots for X2 (target_raw + target)
+    _plot_distribution(
+        split_frames,
+        bundle.analysis_dir / "assets" / "dist_target_raw.png",
+        col="target_raw",
+        clip_low_pct=0.001, clip_high_pct=0.999,
+        title="target_raw 分布（0.1%/99.9% 裁切显示，统计量未裁）",
+        config=config,
+    )
+    _plot_distribution(
+        split_frames,
+        bundle.analysis_dir / "assets" / "dist_target.png",
+        col="target",
+        clip_low_pct=None, clip_high_pct=None,
+        title="target（缩尾后，不裁切）",
+        config=config,
+    )
+
     if feature_importance_df is not None:
         _write_dataframe(feature_importance_df, bundle.analysis_dir / "top_feature_importance.csv")
 
@@ -2458,6 +3342,7 @@ def main() -> int:
         state_payload,
         resolved_params,
         model_feature_schema,
+        _summary_payload=summary_payload,
     )
     (bundle.analysis_dir / "experiment_analysis_report.md").write_text(report_markdown, encoding="utf-8")
     leadership_html = render_leadership_html(
@@ -2473,27 +3358,9 @@ def main() -> int:
         feature_importance_df,
         state_payload,
         resolved_params,
+        _summary_payload=summary_payload,
     )
     (bundle.analysis_dir / "experiment_summary_for_leadership.html").write_text(leadership_html, encoding="utf-8")
-    summary_payload = render_summary_json(
-        bundle,
-        clean_stats,
-        split_frames,
-        quintile_df,
-        median_df,
-        median_uplift,
-        threshold_df,
-        threshold_summary,
-        monotonic_df,
-        monotonic_summary,
-        feature_importance_df,
-        feature_importance_summary,
-        state_payload,
-        resolved_params,
-        model_feature_schema,
-        config,
-    )
-    _write_json(bundle.analysis_dir / "report_summary.json", summary_payload)
     print(f"分析完成，产物已写入: {_rel(bundle.analysis_dir)}")
     return 0
 

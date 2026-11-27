@@ -52,6 +52,33 @@
 | `pipeline/branches/indicators_v3.py` | 可选指标扩展，不改变主线 step 语义 | 扩展指标计算函数 |
 | `pipeline/ensemble/bagging.py` | bagging lab 与 ensemble 的编排、聚合与报告输出 | `run_bagging_experiment()` |
 
+## report/ 包（v1.1.1+）
+
+v1.1.1 新增 `report/` 包，实现报告层三份报告 + 数据卡 + 参考页：
+
+| 模块 | 职责 |
+| :--- | :--- |
+| `report/schema.py` | `SCHEMA_VERSION`, `REQUIRED_KEYS`, `validate()`, `DEGRADE_MATRIX` |
+| `report/load.py` | `load_summary()`, `get()`, `fmt_*` 格式化系列 |
+| `report/common.py` | `build_toc`, `render_table`, `section`, `figure`, `explain_simple` 等可读性原语 |
+| `report/experiment.py` | `render_experiment(summary) -> str`：X0–X10 实验详细报告 |
+| `report/engineering.py` | `render_engineering(summary) -> str`：E0–E11 工程详细报告 |
+| `report/executive.py` | `render_executive(summary, spec) -> str`：领导版自包含 HTML（图片 base64 内嵌） |
+| `report/datacard.py` | `render_datacard(summary) -> str`：T2 数据卡（每 `samples_id` 一份） |
+| `report/reference.py` | `render_reference(summary) -> str`：T3 参考页（每内核版本一份） |
+| `report/spec.py` | `load_spec()`, `resolve_placeholders()`, `SpecError`：领导版规格解析 |
+| `report/build.py` | `write_all()`, `write_manifest()`：落盘与产物清单 |
+| `report/_legacy.py` | 改造前渲染实现的副本（M1 golden 保障，v1.2 删除） |
+| `report/__init__.py` | `render_all(summary_path, out_dir, types, layout, spec_path) -> dict[str, Path]`：编排入口 |
+
+## tools/ 新增脚本（v1.1.1+）
+
+| 脚本 | 用途 |
+| :--- | :--- |
+| `tools/build_reports.py` | 薄 CLI：从 manifest 或 ev 号生成三份报告 + 数据卡 + 参考页 |
+| `tools/verify_reports.py` | 里程碑 Gate 断言工具（A-1..A-29）；M0–M6 各对应一套断言 |
+| `tools/compare_runs.py` | 运行间对比工具；口径不同时只输出说明，不输出指标 Δ |
+
 ## 分层结构
 
 可以把内核理解为四层：
@@ -86,6 +113,26 @@ flowchart LR
     F --> M
     G --> M
 ```
+
+## data_prep 前置层（v1.1+）
+
+当 `input.mode: samples` 时，step1 之前需要先运行 `data_prep` 前置层：
+
+```text
+data/raw/ 或外部数据
+  └→ tools/build_samples.py     → data/prepared/<samples_id>/
+  └→ tools/build_labels.py      → data/labels/<samples_id>/
+       └→ step1_clean（samples 模式）→ 后续步骤与 holding_file 模式一致
+```
+
+| 模块 | 职责 | 路径 |
+| :--- | :--- | :--- |
+| `data_prep/build_samples.py` | 样本生成核心逻辑 | `data_prep/` |
+| `data_prep/label_builder.py` | 标签生成与缓存 | `data_prep/` |
+| `tools/build_samples.py` | 样本生成 CLI 入口 | `tools/` |
+| `tools/build_labels.py` | 标签生成 CLI 入口 | `tools/` |
+
+`data_prep/` 不 import `pipeline/`；`pipeline/` 只在函数内惰性 import `data_prep`（见 §5 实现硬约束）。
 
 ## 关键不变式
 

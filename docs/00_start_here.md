@@ -23,6 +23,15 @@ python run_experiment_pipeline.py --mode smoke --smoke 5000 --step 2 --config co
 - **同一个配置、同一模式，step1~step6 必须共用一个 `state-file`**：状态机靠它判断"前置步骤是否已完成"。
 - **不同配置或不同模式（smoke / full）必须用不同 `state-file`**，否则会互相覆盖状态。
 
+若使用**事件采样模式**（`input.mode: samples`），需先生成前置产物再跑管道：
+
+```powershell
+python tools/build_samples.py --config <配置> --json
+python tools/build_labels.py --config <配置> --json
+python run_experiment_pipeline.py --mode smoke --step 1 --config <配置> --state-file <state>
+# ... step 2~6 同理
+```
+
 ## 阅读顺序
 
 建议阅读顺序固定为：
@@ -45,6 +54,7 @@ python run_experiment_pipeline.py --mode smoke --smoke 5000 --step 2 --config co
 | 搞清数据契约 | `01_pipeline_contract.md` |
 | 判断某步是否合格 | `07_step_acceptance_criteria.md` |
 | 避免已知坑 | `03_pitfalls.md` |
+| 查潜在风险与待修事项 | `16_potential_risks.md` |
 | 配置 tsfresh / LightGBM | `05_framework_mechanisms.md` |
 | 收尾一个谱系 | `06_closeout_playbook.md` |
 

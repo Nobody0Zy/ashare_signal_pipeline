@@ -165,11 +165,23 @@ python tools/check_raw_data.py --config <配置路径> --check-columns
 字段契约可单独查看：`python pipeline/adapters/sample_family.py --show-contract`
 （`holding` 6 个字段、`datebar` 9 个字段）。
 
-### 5.2 生成谱系入口
+### 5.1b 可选：用事件采样替代 holding_file（v1.1+）
 
-```powershell
-python tools/scaffold_experiment_line.py <base_version> --version-subdir v0 --label baseline
-```
+若本族样本不是「已有持仓记录」，而是由规则/事件产生（如布林带突破），
+可跳过 `holding_file`，改用两段式前置层：
+
+1. 生成样本骨架：`python tools/build_samples.py --config <配置> --json`
+   → 产出 `data/prepared/<samples_id>/samples.parquet` + `manifest.json`
+2. 生成标签：`python tools/build_labels.py --config <配置> --json`
+   → 产出 `data/labels/<samples_id>/<label>.parquet` + `_index.json`
+3. 配置改为 `input.mode: samples` + `target.source: label_file`
+   （完整 YAML 形态见 `docs/15_data_contract.md`）
+
+契约、内置采样/标签清单与扩展步骤见 `docs/15_data_contract.md`。
+两条路径的产物契约不同，**不要混用**：`holding_file` 模式读原始持仓表，
+`samples` 模式读前置层产物。
+
+### 5.2 生成谱系入口
 
 生成：
 
@@ -265,3 +277,4 @@ git commit -m "Add <base_version> v0 baseline scaffold"
 | 避免已知坑 | `03_pitfalls.md` |
 | 配置 tsfresh / LightGBM | `05_framework_mechanisms.md` |
 | 收尾一个谱系 | `06_closeout_playbook.md` |
+| docs/15_data_contract.md | samples / labels 数据契约、内置清单、扩展步骤 |

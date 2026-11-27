@@ -75,7 +75,7 @@ def _build_slice_chunk(
     }
     non_trading_rows: List[Dict[str, float]] = []
     invalid_sample_ids: List[int] = []
-    invalid_reasons = {"missing_signal_date": 0, "paused_signal_date": 0, "insufficient_history": 0}
+    invalid_reasons = {"unknown_symbol": 0, "date_not_in_symbol_range": 0, "paused_signal_date": 0, "insufficient_history": 0}
 
     for row in chunk_holding.itertuples(index=False):
         sample_id = int(row.sample_id)
@@ -83,14 +83,14 @@ def _build_slice_chunk(
         symbol_data = grouped.get(row.idxs)
         if symbol_data is None:
             invalid_sample_ids.append(sample_id)
-            invalid_reasons["missing_signal_date"] += 1
+            invalid_reasons["unknown_symbol"] += 1
             continue
 
         idxd = symbol_data["idxd"]
         signal_position = int(np.searchsorted(idxd, signal_date, side="left"))
         if signal_position >= len(idxd) or int(idxd[signal_position]) != signal_date:
             invalid_sample_ids.append(sample_id)
-            invalid_reasons["missing_signal_date"] += 1
+            invalid_reasons["date_not_in_symbol_range"] += 1
             continue
 
         paused = symbol_data["paused"]
@@ -149,7 +149,7 @@ def _build_slices_for_holdings(
     slice_frames: List[pd.DataFrame] = []
     non_trading_frames: List[pd.DataFrame] = []
     invalid_sample_ids: List[int] = []
-    invalid_reasons = {"missing_signal_date": 0, "paused_signal_date": 0, "insufficient_history": 0}
+    invalid_reasons = {"unknown_symbol": 0, "date_not_in_symbol_range": 0, "paused_signal_date": 0, "insufficient_history": 0}
 
     for index, chunk in enumerate(chunks):
         print(f"步骤2 处理分块 {index + 1}/{len(chunks)}，样本数={len(chunk)}")

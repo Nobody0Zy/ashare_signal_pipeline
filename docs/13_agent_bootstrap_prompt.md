@@ -16,6 +16,7 @@
 > | `12_clone_and_start.md` | 人 | 同一条路径的人类操作手册（含原理说明） |
 > | `AGENTS.md` | agent | 进入仓库后的环境规则 |
 > | `01_pipeline_contract.md` | agent | 硬约束细节 |
+> | `docs/15_data_contract.md` | agent | 若本族使用事件采样而非 `holding_file` |
 
 ---
 
@@ -86,6 +87,7 @@ data:
 ```
 
 新谱系的数据命名不同时，只改这两行；不要改内核代码。
+若本族样本由事件规则产生，可用 `data_prep` 前置层替代 `holding_file`：先跑 `tools/build_samples.py` 与 `tools/build_labels.py`，再设 `input.mode: samples`。详见 `docs/15_data_contract.md` 与 `docs/12_clone_and_start.md` §5.1b。
 
 | 项 | 默认约定（可改） |
 | :--- | :--- |
@@ -290,6 +292,7 @@ ENV_SETUP      = {{ENV_SETUP}}     # auto | forbidden
     b. include_date / include_year / include_month 三项均为 false
     c. configs/experiment_index.yaml 仍是合法 YAML，且包含本条注册
     d. YAML 含 data 段（holding_file / datebar_file）；有数据时指向本族真实文件，无数据模式保留默认约定即可
+       若本族样本由事件规则产生，可用 `data_prep` 前置层替代 `holding_file`：先跑 `tools/build_samples.py` 与 `tools/build_labels.py`，再设 `input.mode: samples`。详见 `docs/15_data_contract.md` 与 `docs/12_clone_and_start.md` §5.1b。
 
 【阶段 5 · 跑 smoke】
   前置：阶段 3 的检查结果为 0（就绪）。若为 2（数据缺失），跳过阶段 5/6/6.5，

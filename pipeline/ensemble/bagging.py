@@ -63,6 +63,46 @@ def _rel(root: Path, path: Path | None) -> str:
         return str(path)
 
 
+def _pick_report(analysis_dir: "Path | str", type_: str, fmt: str) -> str:
+    """Return path to a report file, reading manifest first then falling back to legacy names.
+
+    Args:
+        analysis_dir: path to the analysis/ directory (absolute or relative)
+        type_: 'experiment' | 'engineering' | 'executive'
+        fmt:   'md' | 'html'
+
+    Returns:
+        Absolute-path string of the matched report, or '' if not found.
+
+    Priority:
+        1. Read analysis_dir/reports/manifest.json; find non-deprecated entry with matching type+format
+        2. Fall back to hardcoded legacy file name in analysis_dir
+        3. Return '' (never raises)
+    """
+    analysis_dir = Path(analysis_dir)
+    manifest_path = analysis_dir / "reports" / "manifest.json"
+    _LEGACY = {
+        ("experiment", "md"): "experiment_analysis_report.md",
+        ("executive", "html"): "experiment_summary_for_leadership.html",
+    }
+    if manifest_path.exists():
+        try:
+            with manifest_path.open(encoding="utf-8") as f:
+                mf = json.load(f)
+            for rep in mf.get("reports", []):
+                if rep.get("type") == type_ and rep.get("format") == fmt and not rep.get("deprecated", False):
+                    p = analysis_dir / rep["path"]
+                    return str(p) if p.exists() else ""
+        except Exception:
+            pass
+    # fall back to legacy name
+    legacy_name = _LEGACY.get((type_, fmt))
+    if legacy_name:
+        p = analysis_dir / legacy_name
+        return str(p) if p.exists() else ""
+    return ""
+
+
 def _resolve_path(root: Path, path_str: str) -> Path:
     path = Path(path_str)
     if path.is_absolute():
@@ -1287,9 +1327,9 @@ def _write_lab_manifest(
             "model_feature_schema_file": _rel(root, lab_paths.metadata_dir / "model_feature_schema.json"),
             "bagging_lab_summary_file": _rel(root, bagging_summary_path),
             "source_manifest_file": _rel(root, source_artifacts.manifest_path),
-            "analysis_report_file": _rel(root, lab_paths.output_dir / "analysis" / "experiment_analysis_report.md"),
+            "analysis_report_file": _pick_report(lab_paths.output_dir / "analysis", "experiment", "md"),
             "report_summary_file": _rel(root, lab_paths.output_dir / "analysis" / "report_summary.json"),
-            "leadership_html_file": _rel(root, lab_paths.output_dir / "analysis" / "experiment_summary_for_leadership.html"),
+            "leadership_html_file": _pick_report(lab_paths.output_dir / "analysis", "executive", "html"),
             "training_log_file": _rel(root, lab_paths.metadata_dir / "training_log.txt"),
             "resolved_analysis_config_file": _rel(root, analysis_config_path),
             "analysis_invocation_log_file": _rel(root, lab_paths.metadata_dir / "analysis_invocation.log"),
@@ -2686,7 +2726,7 @@ def _build_bagging_report(
         f"- ensemble vs baseline test MAE 差值: {_fmt_float(baseline_delta_mae)}",
         "",
         "## 17. 补充文件",
-        f"- 管理层报告 HTML: {_rel(root, ensemble_ctx.analysis_dir / 'experiment_summary_for_leadership.html')}",
+        f"- 管理层报告 HTML: {_pick_report(ensemble_ctx.analysis_dir, 'executive', 'html')}",
         f"- 11 个实验 target 单调性图: {_rel(root, target_all_split_figure)}",
         f"- 11 个实验 y_pred 单调性图: {_rel(root, y_pred_all_split_figure)}",
         f"- 横向指标 CSV: {_rel(root, ensemble_ctx.analysis_dir / 'comparison_experiment_metrics.csv')}",
@@ -2696,7 +2736,8 @@ def _build_bagging_report(
         "- 若 top features 的 nonzero_model_count 接近模型总数，当前特征重要性结论稳定性较强。",
         "- 若极端阈值未继续改善 raw 均值，下一轮应优先优化最高分尾部稳定性，而不是继续抬高过滤阈值。",
     ]
-    leadership_html_path = ensemble_ctx.analysis_dir / "experiment_summary_for_leadership.html"
+    leadership_html_path_str = _pick_report(ensemble_ctx.analysis_dir, "executive", "html")
+    leadership_html_path = Path(leadership_html_path_str) if leadership_html_path_str else ensemble_ctx.analysis_dir / "experiment_summary_for_leadership.html"
     leadership_html_path.write_text(
         _render_bagging_leadership_html(root, ensemble_ctx, comparison_tables, aggregation_summary, feature_importance_df),
         encoding="utf-8",
@@ -2885,8 +2926,8 @@ def run_bagging_experiment(
         "lab_runs_file": _rel(root, lab_runs_path),
         "aggregation_summary_file": _rel(root, aggregation_summary_path),
         "feature_importance_bagged_file": _rel(root, feature_importance_path),
-        "analysis_report_file": _rel(root, ensemble_ctx.analysis_dir / "experiment_analysis_report.md") if (ensemble_ctx.analysis_dir / "experiment_analysis_report.md").exists() else "",
-        "leadership_html_file": _rel(root, ensemble_ctx.analysis_dir / "experiment_summary_for_leadership.html") if (ensemble_ctx.analysis_dir / "experiment_summary_for_leadership.html").exists() else "",
+        "analysis_report_file": _pick_report(ensemble_ctx.analysis_dir, "experiment", "md"),
+        "leadership_html_file": _pick_report(ensemble_ctx.analysis_dir, "executive", "html"),
         "report_summary_file": _rel(root, ensemble_ctx.analysis_dir / "report_summary.json") if (ensemble_ctx.analysis_dir / "report_summary.json").exists() else "",
         "bagging_report_file": _rel(root, bagging_report_path) if bagging_report_path.exists() else "",
         "source_manifest_file": _rel(root, source_artifacts.manifest_path),

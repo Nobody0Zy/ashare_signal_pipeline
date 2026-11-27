@@ -19,4 +19,9 @@
 #     description: 布林带样本族 v0 基线实验
 #     expected_base_version: boll
 #     label: baseline
-experiments: []
+experiments:
+  - name: kernel_v11_check_baseline
+    config: configs/kernel_v11/check/refactor_check.yaml
+    description: v1.1 refactor baseline regression config for M0 verification.
+    expected_base_version: kernel_v11
+    label: baseline

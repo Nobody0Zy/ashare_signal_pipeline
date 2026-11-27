@@ -106,6 +106,29 @@
 
 ---
 
+## 7b. step1 双模式（v1.1+）
+
+step1 支持两种输入模式，由配置 `input.mode` 控制：
+
+| `input.mode` | 数据来源 | 前置要求 |
+| :--- | :--- | :--- |
+| `holding_file`（默认） | 读 `data.holding_file` 指向的原始持仓 parquet | 无额外前置 |
+| `samples` | 读 `data/prepared/<samples_id>/samples.parquet` + `data/labels/<samples_id>/<label>.parquet` | 必须先用 `tools/build_samples.py` 与 `tools/build_labels.py` 生成前置产物 |
+
+**samples 模式 `samples_id` 与 state 规则**：
+- `samples_id` 由参数哈希与 datebar 指纹派生，不手写；
+- step1 完成后，`details.samples_id` 写入 state；runner 下次对比 `samples_id` / `label_hash` / `datebar_fingerprint` 决定是否重跑；
+- 两种模式的 `holding_clean.parquet` 结构相同，后续步骤行为一致。
+
+| 模式 | 用法 | 语义 |
+| :--- | :--- | :--- |
+| 冒烟 | `--mode smoke --smoke 5000`；样本抽取用 `random.sample` 且种子固定 42 | 仅验证管道；step4 特征筛选可基于全部冒烟样本；step5 可按 70/15/15 随机分割并跳过缓冲带校验 |
+| 全量 | `--mode full`，使用全部数据 | 严格遵守时间隔离；step4 筛选只能用训练集标签；step5 必须执行缓冲带硬校验 |
+
+> 抽样规模应遵循 `configs/default.yaml` 中的 `smoke_size`，不要临时发明另一套目录或命名。
+
+---
+
 ## 8. 与新谱系的关系
 
 1. 以上约束在新谱系中**默认继承**。若新样本数据使其某条不再成立（例如缺少 `paused` 字段导致停牌语义变化），必须**显式记录变更理由**，而不是静默放宽。

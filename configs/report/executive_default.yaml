@@ -1,0 +1,45 @@
+schema: executive-report/1
+title: 策略信号模型 · 实验汇报
+subtitle: "版本 {kernel_version}｜全量样本 {sample_count_h}｜测试期 {test_start} ~ {test_end}"
+
+kpi:
+  - id: spearman
+    label: 排序能力
+    value: "{step6.spearman:+.3f}"
+    note: "测试集 Spearman（0 为无排序力）"
+    locked: true
+  - id: head_tail
+    label: 头尾收益差
+    value: "{quintile.head_minus_tail_pp:+.2f}pp"
+    note: "五分组最高 − 最低"
+    locked: true
+  - id: samples
+    label: 可用样本
+    value: "{sample_count_h}"
+    note: "标签覆盖率 {label_coverage_pct}"
+    locked: true
+  - id: features
+    label: 模型特征
+    value: "{model_feature_schema.feature_count}"
+    note: "从 {feature_funnel.raw_extracted} 个候选筛出"
+    locked: true
+
+sections:
+  - type: conclusions
+    items:
+      - "模型有排序能力，但偏弱。预测分越高的信号，实际收益越高，五个分组单调上行。"
+      - "适合当过滤器，不适合当决策器。只保留预测高于中位数的一半，收益明显提升。"
+      - "不建议直接用于择时或仓位。{split.decay_brief}"
+  - type: monotonic_100
+    order: [train, val, test, all, pred]
+    summary_table: true
+    detail_table: false
+  - type: groups
+    tables: [quintile, median_split, threshold]
+  - type: risk
+    text: "测试期的整体收益水平低于训练期（中位数低 {drift_hint.test.median_delta_pp} 个百分点、胜率低 {drift_hint.test.win_rate_delta_pp} 个百分点），模型在不利行情下的表现仍需验证。"
+  - type: actions
+    items:
+      - "把该模型作为候选池的前置过滤，与现有规则结合使用，先做小规模并行验证。"
+      - "补充更长期的标签与交易成本，验证收益能否覆盖成本。"
+      - "在更多时间窗口上重复本轮实验，确认排序能力不是单期偶然。"

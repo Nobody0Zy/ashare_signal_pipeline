@@ -29,6 +29,9 @@
 | `docs/` | 跨谱系可复用知识、SOP、架构说明、模板文档 | 可改 |
 | `data/raw/` | 样本族输入数据入口（持仓样本与日线原始文件；也可由配置指向别处） | 只读 |
 | `outputs/` | 实验输出、报告、manifest 与运行登记 | 可改 |
+| `data_prep/` | 样本生成与标签计算前置层（`build_samples` / `build_labels` CLI） | 可改 |
+| `data/prepared/` | 样本骨架产物（`samples.parquet` + `manifest.json`） | 运行期产物 |
+| `data/labels/` | 标签产物（`*.parquet` + `_index.json`） | 运行期产物 |
 
 补充约定：
 
@@ -85,6 +88,7 @@
 - 全量模式必须按时间先后切分，并保留不少于 60 个交易日缓冲带。
 - 特征筛选、标签缩尾分位数等依赖标签分布的统计量只能在训练集内部计算。
 - 冒烟模式只验证管道畅通，不把其指标当成正式结论。
+- `input.mode: samples` 时必须先用 `tools/build_samples.py` 与 `tools/build_labels.py` 生成前置产物，再跑 step1~step6。
 - 任何与旧行为对拍的验证，都必须走 YAML 加载路径，而不是裸构造参数对象。
 - 共享 `data/processed/`、`data/slices/`、`data/features/` 等中间目录的验证，不得并行。
 
@@ -97,12 +101,12 @@
 
 ## 5. 内核版本
 
-模板仓库本身只维护 execution kernel；每个样本族 fork 自哪个内核版本、为何开启该轮迭代、对应的数据来源与目标边界，应记录在该版本目录下的 `design/<base_version>/<version_subdir>/CONTEXT.md`。
+模板仓库本身只维护 execution kernel；每个样本族 fork 自哪个内核版本、为何开启该轮迭代、对应的数据来源与目标边界，应记录在该版本目录下的 `version_design/design/<lineage>/<version_subdir>/CONTEXT.md`。
 
 建议同时保持：
 
-- `design/<base_version>/README.md`：记录该样本族已有的 `version_subdir`
-- `design/<base_version>/<version_subdir>/CONTEXT.md`：记录该版本的 fork 来源、数据来源与目标
+- `version_design/design/<lineage>/README.md`：记录该样本族已有的 `version_subdir`
+- `version_design/design/<lineage>/<version_subdir>/CONTEXT.md`：记录该版本的 fork 来源、数据来源与目标
 - `configs/experiment_index.yaml`：记录每个可执行配置的注册信息
 
 版本记录最少应回答 4 个问题：

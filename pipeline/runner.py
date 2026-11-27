@@ -49,6 +49,53 @@ def _completed_step_matches_current_inputs(
     step: int,
     current: Dict[str, object],
 ) -> bool:
+    if step == 1:
+        details = current.get("details", {}) if isinstance(current, dict) else {}
+        if not isinstance(details, dict):
+            return True
+        stored_mode = details.get("input_mode")
+        if stored_mode is None:
+            # 旧 state 缺 input_mode → 视为签名变化 → 重跑（§6.3 / §7 M4）
+            return False
+        mode_in = getattr(getattr(params, "input", None), "mode", "holding_file")
+        if stored_mode != mode_in:
+            return False
+        if mode_in == "holding_file":
+            return True
+        # samples 模式：比对 samples_id / label_hash / datebar_fingerprint
+        for key in ("samples_id", "label_hash", "datebar_fingerprint"):
+            if details.get(key) is None:
+                return False
+        # 惰性导入（§6.2 不变量 3）
+        from pipeline.step1_clean import _derive_samples_id_for_config  # noqa: PLC0415
+        from data_prep.ids import derive_datebar_fingerprint             # noqa: PLC0415
+        try:
+            current_fp = derive_datebar_fingerprint(paths.raw_datebar)
+        except Exception:
+            return False
+        if details.get("datebar_fingerprint") != current_fp:
+            return False
+        try:
+            current_sid = _derive_samples_id_for_config(paths, params, current_fp)
+        except Exception:
+            return False
+        if details.get("samples_id") != current_sid:
+            return False
+        # label_hash：从 _index.json 读当前值
+        try:
+            source = str(params.target.source).strip()
+            lname = "target_holding_return" if source == "holding_return" else str(params.target.label).strip()
+            index_file = paths.labels_root_dir / current_sid / "_index.json"
+            if not index_file.exists():
+                return False
+            import json as _json  # noqa: PLC0415
+            with index_file.open("r", encoding="utf-8") as fh:
+                idx = _json.load(fh)
+            current_lhash = str(idx.get(lname, {}).get("params_hash", ""))
+        except Exception:
+            return False
+        return details.get("label_hash") == current_lhash
+
     if step != 4:
         return True
     details = current.get("details", {}) if isinstance(current, dict) else {}

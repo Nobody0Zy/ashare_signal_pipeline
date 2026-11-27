@@ -25,3 +25,16 @@ state/
 pipeline_state_*.json
 legacy_unversioned/
 bagging_regen.log
+
+# 本地验证配置（含机器绝对路径），不入库
+configs/local/
+
+# 报告层领导版本地覆盖规格（含业务定制，不入库）
+configs/report/executive_override.yaml
+
+# 重构参考模板（外部项目复制而来，仅本地参考，不入库；重构完成后可删除）
+version_design/demo/
+
+# v1.1 一次性验收工具的运行期报告（默认写在仓库根）
+verify_report*.json
+version_design/
